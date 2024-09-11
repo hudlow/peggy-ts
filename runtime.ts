@@ -100,7 +100,7 @@ const runtime = `
 
         function describeFound(found: string | null): string {
           return found
-            ? '"' + LiteralExpectation.escape(found) + '"'
+            ? '"' + escape(found) + '"'
             : "end of input";
         }
 
@@ -115,113 +115,125 @@ const runtime = `
 
     export interface Expectation {
       type: "literal" | "class" | "any" | "end" | "other";
-      toString(): string;
+      value: string;
     }
 
-    export class LiteralExpectation implements Expectation {
-      type: "literal" = "literal";
-      text: string;
-      ignoreCase: boolean;
-
-      constructor(text: string, ignoreCase: boolean) {
-        this.text = text;
-        this.ignoreCase = ignoreCase;
-      }
-
-      toString(): string {
-        return '"' + LiteralExpectation.escape(this.text) + '"';
-      }
-
-      static escape(s: string): string {
-        return s
-          .replace(/\\\\/g, "\\\\\\\\")
-          .replace(/"/g, '\\\\"')
-          .replace(/\\0/g, "\\\\0")
-          .replace(/\\t/g, "\\\\t")
-          .replace(/\\n/g, "\\\\n")
-          .replace(/\\r/g, "\\\\r")
-          .replace(/[\\x00-\\x0F]/g, function (ch) {
-            return "\\\\x0" + hex(ch);
-          })
-          .replace(/[\\x10-\\x1F\\x7F-\\x9F]/g, function (ch) {
-            return "\\\\x" + hex(ch);
-          });
-      }
+    export interface LiteralExpectation extends Expectation {
+      type: "literal";
+      value: string;
     }
 
-    export class ClassExpectation implements Expectation {
-      type: "class" = "class";
-      parts: (string | string[])[];
-      inverted: boolean;
-      ignoreCase: boolean;
+    export interface ClassExpectation extends Expectation {
+      type: "class";
+      value: string;
+    }
 
-      constructor(
-        parts: (string | string[])[],
-        inverted: boolean,
-        ignoreCase: boolean,
-      ) {
-        this.parts = parts;
-        this.inverted = inverted;
-        this.ignoreCase = ignoreCase;
-      }
+    export interface AnyExpectation extends Expectation {
+      type: "any";
+      value: "any character";
+    }
 
-      toString(): string {
-        const escapedParts = this.parts.map((part) => {
-          return Array.isArray(part)
-            ? ClassExpectation.escape(part[0]) + "-" +
-              ClassExpectation.escape(part[1])
-            : ClassExpectation.escape(part);
+    export interface EndExpectation extends Expectation {
+      type: "end";
+      value: "end of input";
+    }
+
+    export interface OtherExpectation extends Expectation {
+      type: "other";
+      value: string;
+    }
+
+    function escape(s: string): string {
+      return s
+        .replace(/\\\\/g, "\\\\\\\\")
+        .replace(/"/g, '\\\\"')
+        .replace(/\\0/g, "\\\\0")
+        .replace(/\\t/g, "\\\\t")
+        .replace(/\\n/g, "\\\\n")
+        .replace(/\\r/g, "\\\\r")
+        .replace(/[\\x00-\\x0F]/g, function (ch) {
+          return "\\\\x0" + hex(ch);
+        })
+        .replace(/[\\x10-\\x1F\\x7F-\\x9F]/g, function (ch) {
+          return "\\\\x" + hex(ch);
         });
-        return "[" + (this.inverted ? "^" : "") + escapedParts.join("") + "]";
-      }
+   }
 
-      static escape(s: string): string {
-        return s
-          .replace(/\\\\/g, "\\\\\\\\")
-          .replace(/\\]/g, "\\\\]")
-          .replace(/\\^/g, "\\\\^")
-          .replace(/-/g, "\\\\-")
-          .replace(/\\0/g, "\\\\0")
-          .replace(/\\t/g, "\\\\t")
-          .replace(/\\n/g, "\\\\n")
-          .replace(/\\r/g, "\\\\r")
-          .replace(/[\\x00-\\x0F]/g, function (ch) {
-            return "\\\\x0" + hex(ch);
-          })
-          .replace(/[\\x10-\\x1F\\x7F-\\x9F]/g, function (ch) {
-            return "\\\\x" + hex(ch);
-          });
-      }
-    }
+//     export class LiteralExpectation implements Expectation {
+//       type: "literal" = "literal";
+//       text: string;
+//       ignoreCase: boolean;
+//
+//       constructor(text: string, ignoreCase: boolean) {
+//         this.text = text;
+//         this.ignoreCase = ignoreCase;
+//       }
+//
+//       toString(): string {
+//         return '"' + escape(this.text) + '"';
+//       }
+//
+//       static escape(s: string): string {
+//         return s
+//           .replace(/\\\\/g, "\\\\\\\\")
+//           .replace(/"/g, '\\\\"')
+//           .replace(/\\0/g, "\\\\0")
+//           .replace(/\\t/g, "\\\\t")
+//           .replace(/\\n/g, "\\\\n")
+//           .replace(/\\r/g, "\\\\r")
+//           .replace(/[\\x00-\\x0F]/g, function (ch) {
+//             return "\\\\x0" + hex(ch);
+//           })
+//           .replace(/[\\x10-\\x1F\\x7F-\\x9F]/g, function (ch) {
+//             return "\\\\x" + hex(ch);
+//           });
+//       }
+//     }
 
-    export class AnyExpectation implements Expectation {
-      type: "any" = "any";
-
-      toString() {
-        return "any character";
-      }
-    }
-
-    export class EndExpectation implements Expectation {
-      type: "end" = "end";
-
-      toString() {
-        return "end of input";
-      }
-    }
-
-    export class OtherExpectation implements Expectation {
-      type: "other" = "other";
-      description: string;
-
-      constructor(description: string) {
-        this.description = description;
-      }
-
-      toString(): string {
-        return this.description;
-      }
-    }
+//     export interface ClassExpectation extends Expectation {
+//       type: "class" = "class";
+//       parts: (string | string[])[];
+//       inverted: boolean;
+//       ignoreCase: boolean;
+//
+//       constructor(
+//         parts: (string | string[])[],
+//         inverted: boolean,
+//         ignoreCase: boolean,
+//       ) {
+//         this.parts = parts;
+//         this.inverted = inverted;
+//         this.ignoreCase = ignoreCase;
+//       }
+//
+//       toString(): string {
+//         const escapedParts = this.parts.map((part) => {
+//           return Array.isArray(part)
+//             ? ClassExpectation.escape(part[0]) + "-" +
+//               ClassExpectation.escape(part[1])
+//             : ClassExpectation.escape(part);
+//         });
+//         return "[" + (this.inverted ? "^" : "") + escapedParts.join("") + "]";
+//       }
+//
+//       static escape(s: string): string {
+//         return s
+//           .replace(/\\\\/g, "\\\\\\\\")
+//           .replace(/\\]/g, "\\\\]")
+//           .replace(/\\^/g, "\\\\^")
+//           .replace(/-/g, "\\\\-")
+//           .replace(/\\0/g, "\\\\0")
+//           .replace(/\\t/g, "\\\\t")
+//           .replace(/\\n/g, "\\\\n")
+//           .replace(/\\r/g, "\\\\r")
+//           .replace(/[\\x00-\\x0F]/g, function (ch) {
+//             return "\\\\x0" + hex(ch);
+//           })
+//           .replace(/[\\x10-\\x1F\\x7F-\\x9F]/g, function (ch) {
+//             return "\\\\x" + hex(ch);
+//           });
+//       }
+//     }
 
     export class ParseFailure {
     }
@@ -236,51 +248,70 @@ const runtime = `
       [index: string]: unknown;
     }
 
-    export class Failure {
-      value: Expectation[];
+    export interface Result {
+      success: boolean;
       remainder: string;
-
-      constructor(value: Expectation[], remainder: string) {
-        this.value = value;
-        this.remainder = remainder;
-      }
-
-      toString() {
-        return \`Expected one of: \${this.value.map((e) => "\\n * " + e).join()} \\nGot: "\${this.remainder.slice(0, 1)} [...]"\\n\`;
-      }
     }
 
-    export class Success<T> {
-      readonly value: T;
-      readonly remainder: string;
-      readonly label?: string | null;
-
-      constructor(value: T, remainder: string, label?: string | null) {
-        this.value = value;
-        this.remainder = remainder;
-        this.label = label;
-      }
+    export interface Failure extends Result {
+      success: false;
+      expectations: Expectation[];
     }
 
-    export class SuccessTuple<T extends unknown[]> extends Success<T> {
-      constructor(value: T, remainder: string, label?: string | null) {
-        super(value, remainder, label);
-      }
-
-      with<I extends keyof T>(
-        index: I,
-        result: Success<T[I & number]> | Failure,
-      ): SuccessTuple<T> | Failure {
-        if (result instanceof Failure) {
-          return result;
-        } else {
-          const arr: T = this.value;
-          arr[index] = result.value;
-
-          return new SuccessTuple<T>(arr, result.remainder);
-        }
-      }
+    export interface Success<T> extends Result {
+      success: true;
+      value: T;
     }
+
+    export function isFailure(r: Result): r is Failure {
+      return !r.success;
+    }
+
+//     export class Failure {
+//       value: Expectation[];
+//       remainder: string;
+//
+//       constructor(value: Expectation[], remainder: string) {
+//         this.value = value;
+//         this.remainder = remainder;
+//       }
+//
+//       toString() {
+//         return \`Expected one of: \${this.value.map((e) => "\\n * " + (typeof e === "string" ? e : e.value)).join()} \\nGot: "\${this.remainder.slice(0, 1)} [...]"\\n\`;
+//       }
+//     }
+//
+//     export class Success<T> {
+//       readonly value: T;
+//       readonly remainder: string;
+//       readonly label?: string | null;
+//
+//       constructor(value: T, remainder: string, label?: string | null) {
+//         this.value = value;
+//         this.remainder = remainder;
+//         this.label = label;
+//       }
+//     }
+//
+//     export class SuccessTuple<T extends unknown[]> extends Success<T> {
+//       constructor(value: T, remainder: string, label?: string | null) {
+//         super(value, remainder, label);
+//       }
+//
+//       with<I extends keyof T>(
+//         index: I,
+//         result: Success<T[I & number]> | Failure,
+//       ): SuccessTuple<T> | Failure {
+//         if (result instanceof Failure) {
+//           return result;
+//         } else {
+//           const arr: T = this.value;
+//           arr[index] = result.value;
+//
+//           return new SuccessTuple<T>(arr, result.remainder);
+//         }
+//       }
+//     }
 
     function getLine(input: string, offset: number) {
       let line = 1;

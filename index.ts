@@ -23,7 +23,14 @@ import runtime from "./runtime";
 import inferReturnType from "./infer-return-type";
 
 export function use(config: Peggy.Config, options: Peggy.ParserBuildOptions) {
-  config.passes.generate = [toTypeScript];
+  config.passes.generate = [(...args) => {
+    try {
+      return toTypeScript(...args)
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  }];
 }
 
 function toTypeScript(
@@ -477,7 +484,7 @@ function toTypeScript(
         do {
           result = ${this.func.toCode()}(r);
 
-          if (result instanceof runtime.Success) {
+          if (result.success) {
             r = result.remainder;
             results.push(result.value);` + (
         this.delimiter !== undefined // there's a bug here because we'll consume a trailing delimiter
@@ -489,18 +496,18 @@ function toTypeScript(
       ) + `
           }
         } while (
-          result instanceof runtime.Success`) +
+          result.success`) +
         (this.max !== undefined ? `&& results.length <= ${this.max}` : "") +
         `);` +
         (
           this.min
             ? `if (results.length < ${this.min}) {
-              // always runtime.Failure in this scenario
-              return result;
+              // the loop above guarantees this will be a failure
+              return result as runtime.Failure;
             } else {
-              return new runtime.Success(results, r);
+              return { success: true, value: results, remainder: r };
             }`
-            : `return new runtime.Success(results, r);`
+            : `return { success: true, value: results, remainder: r };`
         );
     }
   }
@@ -775,7 +782,7 @@ function toTypeScript(
     }
 
     static check(value: Node): Node {
-      return new InstanceOf(value, FailureType.singleton);
+      return new Not(new Access(value, StringLiteral.from("success")));
     }
   }
 
@@ -834,34 +841,34 @@ function toTypeScript(
     }
 
     static check(value: Node): Node {
-      return new InstanceOf(value, SuccessType.type);
+      return new Access(value, StringLiteral.from("success"));
     }
   }
 
-  class SuccessTupleType extends SuccessType {
-    static readonly type: Type = SimpleType.from("runtime.SuccessTuple");
-    static #directory: SuccessTupleType[] = [];
-
-    private constructor(subtype: Interface) {
-      super(subtype);
-
-      SuccessTupleType.#directory.push(this);
-    }
-
-    static from(subtype: Interface): SuccessTupleType {
-      const found = SuccessTupleType.#directory.find((g) => g.subtype === subtype);
-
-      if (found !== undefined) {
-        return found;
-      } else {
-        return new SuccessTupleType(subtype);
-      }
-    }
-
-    toCode(): string {
-      return `${SuccessTupleType.type.toCode()}<${this.subtype.toCode()}>`;
-    }
-  }
+//   class SuccessTupleType extends SuccessType {
+//     static readonly type: Type = SimpleType.from("runtime.SuccessTuple");
+//     static #directory: SuccessTupleType[] = [];
+//
+//     private constructor(subtype: Interface) {
+//       super(subtype);
+//
+//       SuccessTupleType.#directory.push(this);
+//     }
+//
+//     static from(subtype: Interface): SuccessTupleType {
+//       const found = SuccessTupleType.#directory.find((g) => g.subtype === subtype);
+//
+//       if (found !== undefined) {
+//         return found;
+//       } else {
+//         return new SuccessTupleType(subtype);
+//       }
+//     }
+//
+//     toCode(): string {
+//       return `${SuccessTupleType.type.toCode()}<${this.subtype.toCode()}>`;
+//     }
+//   }
 
   class ArrayType implements Type {
     readonly type: Type;
@@ -1535,8 +1542,12 @@ function toTypeScript(
       }
     }
 
-    toCode() {
-      return `"${this.escape()}"`;
+    toCode(includeDoubleQuotes: boolean = true) {
+      if (includeDoubleQuotes) {
+        return `"${this.escape()}"`;
+      } else {
+        return this.escape();
+      }
     }
 
     toType(): Type {
@@ -1692,7 +1703,10 @@ function toTypeScript(
 
   class AnyExpectation implements Expectation {
     toCode(): string {
-      return `new runtime.AnyExpectation()`;
+      return `{
+        type: "any",
+        value: "any character"
+      }`;
     }
 
     toType(): Type {
@@ -1700,23 +1714,37 @@ function toTypeScript(
     }
   }
 
+  class EndExpectation implements Expectation {
+    toCode(): string {
+      return `{
+        type: "end",
+        value: "end of input"
+      }`;
+    }
+
+    toType(): Type {
+      return SimpleType.from("runtime.EndExpectation");
+    }
+  }
+
   class ClassExpectation implements Expectation {
-    parts: Node;
-    inverted: Node;
-    ignoreCase: Node;
+    parts: StringLiteral;
+    inverted: boolean;
+    ignoreCase: boolean;
 
     constructor(characterClass: Peggy.ast.CharacterClass) {
-      this.parts = LiteralNode.from(characterClass.parts);
-      this.inverted = LiteralNode.from(characterClass.inverted);
-      this.ignoreCase = LiteralNode.from(characterClass.ignoreCase);
+      this.parts = StringLiteral.from(
+        characterClass.parts.map(p => Array.isArray(p) ? `${p[0]}-${p[1]}` : p).join("")
+      );
+      this.inverted = characterClass.inverted;
+      this.ignoreCase = characterClass.ignoreCase;
     }
 
     toCode(): string {
-      return `new runtime.ClassExpectation(
-        ${this.parts.toCode()},
-        ${this.inverted.toCode()},
-        ${this.ignoreCase.toCode()}
-      )`;
+      return `{
+        type: "class",
+        value: "/[${this.inverted ? '^' : ''}${this.parts.toCode(false)}]/${this.ignoreCase ? 'i' : ''}"
+      }`;
     }
 
     toType(): Type {
@@ -1725,19 +1753,19 @@ function toTypeScript(
   }
 
   class LiteralExpectation implements Expectation {
-    value: Node;
+    value: StringLiteral;
     ignoreCase: Node;
 
     constructor(literal: Peggy.ast.Literal) {
-      this.value = LiteralNode.from(literal.value);
+      this.value = StringLiteral.from(literal.value);
       this.ignoreCase = LiteralNode.from(literal.ignoreCase);
     }
 
     toCode(): string {
-      return `new runtime.LiteralExpectation(
-        ${this.value.toCode()},
-        ${this.ignoreCase.toCode()}
-      )`;
+      return `{
+        type: "literal",
+        value: "/${this.value.toCode(false)}/${this.ignoreCase ? 'i' : ''}"
+      }`;
     }
 
     toType(): Type {
@@ -1753,9 +1781,10 @@ function toTypeScript(
     }
 
     toCode(): string {
-      return `new runtime.OtherExpectation(
-        ${this.description.toCode()}
-      )`;
+      return `{
+        type: "other",
+        value: ${this.description.toCode()}
+      }`;
     }
 
     toType(): Type {
@@ -1775,9 +1804,11 @@ function toTypeScript(
     }
 
     toCode() {
-      return `new runtime.Failure([${
-        this.expectations.map((e) => e.toCode()).join()
-      }], ${this.remainder.toCode()})`;
+      return `{
+        success: false,
+        expectations: [${this.expectations.map((e) => e.toCode()).join()}],
+        remainder: ${this.remainder.toCode()}
+      }`;
     }
 
     toType() {
@@ -1793,7 +1824,7 @@ function toTypeScript(
     }
 
     toCode() {
-      return this.node.toCode();
+      return new As(this.node, FailureType.singleton).toCode();
     }
 
     toType() {
@@ -1815,11 +1846,15 @@ function toTypeScript(
       );
     }
 
-    toCode() {
-      return `new runtime.Success<${this.value.toType().toCode()}>(${this.value.toCode()}, ${this.remainder.toCode()})`;
+    toCode(): string {
+      return `{
+        success: true,
+        value: ${this.value.toCode()},
+        remainder: ${this.remainder.toCode()}
+      }`;
     }
 
-    toType() {
+    toType(): SuccessType {
       return this.type;
     }
   }
@@ -1831,12 +1866,41 @@ function toTypeScript(
       this.header = new Empty();
       this.setBody(
         new Return(
-          new Invocation(
-            Function.from(grammar.rules[0] as Peggy.ast.Rule),
-            this.args,
-          ),
+          new Antecedent(
+            new Invocation(
+              Function.from(grammar.rules[0] as Peggy.ast.Rule),
+              this.args,
+            ),
+            (a) => new IfElse(
+              new Access(a, StringLiteral.from("success")),
+              new IfElse(
+                new Equals(new Length(new Access(a, StringLiteral.from("remainder"))), new NumberLiteral(0)),
+                a,
+                new Failure([new EndExpectation()], new Access(a, StringLiteral.from("remainder")))
+              ),
+              new As(a, FailureType.singleton)
+            )
+          )
         ),
       );
+    }
+  }
+
+  class As implements ResultNode {
+    node: ResultNode;
+    type: ResultType;
+
+    constructor(node: ResultNode, type: ResultType) {
+      this.node = node;
+      this.type = type;
+    }
+
+    toCode(): string {
+      return `${this.node.toCode()} as ${this.type.toCode()}`;
+    }
+
+    toType(): ResultType {
+      return this.type;
     }
   }
 
@@ -1891,14 +1955,18 @@ function toTypeScript(
         for (let func = choices.shift(); func !== undefined; func = choices.shift()) {
           const result = func(${this.remainder.toCode()});
 
-          if (result instanceof runtime.Success) {
+          if (result.success) {
             return result;
           } else {
-            expectations.push(...result.value);
+            expectations.push(...(result as runtime.Failure).expectations);
           }
         }
 
-        return new runtime.Failure(expectations, ${this.remainder.toCode()});
+        return {
+          success: false,
+          expectations,
+          remainder: ${this.remainder.toCode()}
+        };
       `;
     }
 
@@ -1976,7 +2044,7 @@ function toTypeScript(
               this.args,
             ),
             (a) => new IfElse(
-              new InstanceOf(a, SimpleType.from("runtime.Success")),
+              new Access(a, StringLiteral.from("success")),
               a,
               new Failure([new OtherExpectation(this.originalName)], new Access(a, StringLiteral.from("remainder"))),
             )
@@ -2009,10 +2077,18 @@ function toTypeScript(
         (() => {
           const result = ${this.func.toCode()}(${this.remainder.toCode()});
 
-          if (result instanceof runtime.Success) {
-            return new runtime.Failure([new runtime.OtherExpectation('Not matching ${JSON.stringify(this.func.source)}')], ${this.remainder.toCode()});
+          if (result.success) {
+            return {
+              success: false,
+              expectations: [{type: "other", value: 'Not matching ${JSON.stringify(this.func.source)}'}],
+              remainder: ${this.remainder.toCode()}
+            }
           } else {
-            return new runtime.Success(undefined, ${this.remainder.toCode()});
+            return {
+              success: true,
+              value: undefined,
+              remainder: ${this.remainder.toCode()}
+            };
           }
         })()
       `;
@@ -2059,15 +2135,16 @@ function toTypeScript(
         (() => {
           const result = ${this.func.toCode()}(${this.remainder.toCode()});
 
-          if (result instanceof runtime.Success) {
-            return new runtime.Success(
-              ${this.remainder.toCode()}.slice(
+          if (result.success) {
+            return {
+              success: true,
+              value: ${this.remainder.toCode()}.slice(
                 0, ${this.remainder.toCode()}.length - result.remainder.length
               ),
-              result.remainder
-            )
+              remainder: result.remainder
+            }
           } else {
-            return result;
+            return result as runtime.Failure;
           }
         })()
       `;
@@ -2205,7 +2282,7 @@ function toTypeScript(
         attempt,
         (a) =>
           new IfElse(
-            new InstanceOf(a, SimpleType.from("runtime.Success")),
+            new Access(a, StringLiteral.from("success")),
             then !== undefined ? then(a) : a,
             fallback !== undefined ? fallback(a) : new KnownFailure(a),
           ),
@@ -2665,15 +2742,16 @@ function toTypeScript(
         (r: string) => {
           const result = ${this.func.name}(r);
 
-          if (result instanceof runtime.Success) {
-            return new runtime.Success(
-              {
+          if (result.success) {
+            return {
+              success: true.
+              value: {
                 $${this.index}: result.value
               },
-              result.remainder
-            );
+              remainder: result.remainder
+            };
           } else {
-            return result;
+            return result as runtime.Failure;
           }
         }
       `;
@@ -2702,34 +2780,64 @@ function toTypeScript(
     }
 
     toCode() {
-      return `
-        [${this.funcs.map((f) => f.toCode()).join(", ")}].reduce(
-          (
-            partialValue:
-              | runtime.SuccessTuple<Partial<${this.interface.toCode()}>>
-              | runtime.Failure,
-            func,
-            index
-          ) => {
-            if (partialValue instanceof runtime.SuccessTuple) {
-              return partialValue.with(
-                index,
-                func(partialValue.remainder)
-              );
-            } else {
-              return partialValue;
-            }
-          },
-          new runtime.SuccessTuple<Partial<${this.interface.toCode()}>>([${
-        this.interface.properties.map((p) => "undefined").join()
-      }], ${this.remainder.toCode()})
-        ) as runtime.SuccessTuple<${this.interface.toCode()}> | runtime.Failure
-      `;
+      return `(() => {
+        let remainder = ${this.remainder.toCode()};
+        ${this.funcs.map((f, i) => `
+          const result${i} = ${f.toCode()}(remainder);
+
+          if (runtime.isFailure(result${i})) {
+            return result${i};
+          } else {
+            remainder = result${i}.remainder;
+          }
+        `).join("\n")}
+
+        const value: ${this.interface.toCode()} = [
+          ${this.funcs.map((f, i) => `result${i}.value`).join()}
+        ]
+
+        return {
+          success: true,
+          value,
+          remainder
+        }
+      })()`;
+
+
+      //   `[${this.funcs.map((f) => f.toCode()).join(", ")}].reduce(
+      //     (
+      //       partialValue:
+      //         | runtime.Success<Partial<${this.interface.toCode()}>>
+      //         | runtime.Failure,
+      //       func
+      //     ) => {
+      //       if (partialValue.success) {
+      //         const result = func(partialValue.remainder);
+      //         if (result.success) {
+      //           return {
+      //             success: true,
+      //             value: [...partialValue.value, result.value],
+      //             remainder: result.remainder
+      //           }
+      //         } else {
+      //           return result as runtime.Failure;
+      //         }
+      //       } else {
+      //         return partialValue;
+      //       }
+      //     },
+      //     {
+      //       success: true,
+      //       value: [],
+      //       remainder: ${this.remainder.toCode()}
+      //     } as runtime.Success<Partial<${this.interface.toCode()}>>
+      //   ) as runtime.Success<${this.interface.toCode()}> | runtime.Failure
+      // `;
     }
 
     toType(): ResultType {
       return UnionType.from<ResultType>(
-        SuccessTupleType.from(this.interface),
+        SuccessType.from(this.interface),
         FailureType.singleton,
       );
     }
@@ -2764,7 +2872,7 @@ function toTypeScript(
 
       const result = ${parser.name}(input);
 
-      if (result instanceof runtime.Success) {
+      if (result.success) {
         return result.value;
       } else {
         throw new Error(result.toString());

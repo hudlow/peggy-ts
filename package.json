@@ -17,7 +17,7 @@
     "ts-morph": "^23.0.0"
   },
   "scripts": {
-    "prepare": "mkdir dist &> /dev/null; esbuild index.ts --bundle --platform=node --format=cjs --external:peggy --external:ts-morph --external:source-map-generator --external:@prettier/sync > ./dist/index.cjs",
+    "prepare": "mkdir dist &> /dev/null; esbuild index.ts --bundle --platform=node --format=cjs --external:peggy --external:ts-morph --external:typescript --external:source-map-generator > ./dist/index.cjs",
     "clean": "rm -rf dist/ node_modules/ jest.config.js",
     "test": "ts-jest config:init &> /dev/null; jest"
   }
