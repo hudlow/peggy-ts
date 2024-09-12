@@ -19,8 +19,8 @@ import * as Morph from "ts-morph";
 import ts from "typescript";
 import { SourceNode } from "source-map-generator";
 
-import runtime from "./runtime";
-import inferReturnType from "./infer-return-type";
+import runtime from "./runtime.ts";
+import inferReturnType from "./infer-return-type.ts";
 
 export function use(config: Peggy.Config, options: Peggy.ParserBuildOptions) {
   config.passes.generate = [(...args) => {
@@ -36,6 +36,7 @@ export function use(config: Peggy.Config, options: Peggy.ParserBuildOptions) {
 function toTypeScript(
   grammar: Peggy.ast.Grammar,
   options: Peggy.ParserBuildOptions,
+  session: Peggy.Session
 ) {
   let rawSource: string | undefined;
 
@@ -300,7 +301,7 @@ function toTypeScript(
 
     body: Return = new Return(
       new Failure(
-        [new AnyExpectation()],
+        [Expectation.from("any", "any character")],
         StringLiteral.from(),
       ),
     );
@@ -1701,98 +1702,54 @@ function toTypeScript(
     }
   }
 
-  class AnyExpectation implements Expectation {
-    toCode(): string {
-      return `{
-        type: "any",
-        value: "any character"
-      }`;
-    }
-
-    toType(): Type {
-      return SimpleType.from("runtime.AnyExpectation");
-    }
-  }
-
-  class EndExpectation implements Expectation {
-    toCode(): string {
-      return `{
-        type: "end",
-        value: "end of input"
-      }`;
-    }
-
-    toType(): Type {
-      return SimpleType.from("runtime.EndExpectation");
-    }
-  }
-
-  class ClassExpectation implements Expectation {
-    parts: StringLiteral;
-    inverted: boolean;
-    ignoreCase: boolean;
-
-    constructor(characterClass: Peggy.ast.CharacterClass) {
-      this.parts = StringLiteral.from(
-        characterClass.parts.map(p => Array.isArray(p) ? `${p[0]}-${p[1]}` : p).join("")
-      );
-      this.inverted = characterClass.inverted;
-      this.ignoreCase = characterClass.ignoreCase;
-    }
-
-    toCode(): string {
-      return `{
-        type: "class",
-        value: "/[${this.inverted ? '^' : ''}${this.parts.toCode(false)}]/${this.ignoreCase ? 'i' : ''}"
-      }`;
-    }
-
-    toType(): Type {
-      return SimpleType.from("runtime.ClassExpectation");
-    }
-  }
-
-  class LiteralExpectation implements Expectation {
+  class Expectation extends Reusable {
+    type: "literal" | "class" | "any" | "end" | "pattern" | "other";
     value: StringLiteral;
-    ignoreCase: Node;
 
-    constructor(literal: Peggy.ast.Literal) {
-      this.value = StringLiteral.from(literal.value);
-      this.ignoreCase = LiteralNode.from(literal.ignoreCase);
+    private constructor(
+      type: "literal" | "class" | "any" | "end" | "pattern" | "other",
+      value: StringLiteral
+    ) {
+      super();
+
+      this.type = type;
+      this.value = value;
     }
 
-    toCode(): string {
-      return `{
-        type: "literal",
-        value: "/${this.value.toCode(false)}/${this.ignoreCase ? 'i' : ''}"
+    static from(
+      type: "literal" | "class" | "any" | "end" | "pattern" | "other",
+      v: string
+    ): Expectation {
+      const value = StringLiteral.from(v);
+      const found = Reusable.find(
+        (i) =>
+          i instanceof Expectation &&
+          i.type === type &&
+          i.value === value,
+      );
+
+      if (found !== undefined) {
+        return found as Expectation;
+      } else {
+        return new Expectation(type, value);
+      }
+    }
+
+    toDefinition(): string {
+      return `const ${this.name}: runtime.Expectation = {
+        type: "${this.type}",
+        value: ${this.value.toCode()}
       }`;
     }
 
-    toType(): Type {
-      return SimpleType.from("runtime.LiteralExpectation");
-    }
-  }
-
-  class OtherExpectation implements Expectation {
-    description: StringLiteral;
-
-    constructor(description: string) {
-      this.description = StringLiteral.from(description);
-    }
-
     toCode(): string {
-      return `{
-        type: "other",
-        value: ${this.description.toCode()}
-      }`;
+      return this.name;
     }
 
     toType(): Type {
-      return SimpleType.from("runtime.OtherExpectation");
+      return SimpleType.from("runtime.Expectation");
     }
   }
-
-  interface Expectation extends Node {}
 
   class Failure implements ResultNode {
     expectations: Expectation[];
@@ -1876,7 +1833,7 @@ function toTypeScript(
               new IfElse(
                 new Equals(new Length(new Access(a, StringLiteral.from("remainder"))), new NumberLiteral(0)),
                 a,
-                new Failure([new EndExpectation()], new Access(a, StringLiteral.from("remainder")))
+                new Failure([Expectation.from("end", "end of input")], new Access(a, StringLiteral.from("remainder")))
               ),
               new As(a, FailureType.singleton)
             )
@@ -1955,16 +1912,16 @@ function toTypeScript(
         for (let func = choices.shift(); func !== undefined; func = choices.shift()) {
           const result = func(${this.remainder.toCode()});
 
-          if (result.success) {
+          if (result.success === true) {
             return result;
           } else {
-            expectations.push(...(result as runtime.Failure).expectations);
+            expectations.push(...result.expectations)
           }
         }
 
         return {
           success: false,
-          expectations,
+          expectations: [...new Set(expectations)],
           remainder: ${this.remainder.toCode()}
         };
       `;
@@ -2046,7 +2003,7 @@ function toTypeScript(
             (a) => new IfElse(
               new Access(a, StringLiteral.from("success")),
               a,
-              new Failure([new OtherExpectation(this.originalName)], new Access(a, StringLiteral.from("remainder"))),
+              new Failure([Expectation.from("other", this.originalName)], new Access(a, StringLiteral.from("remainder"))),
             )
           )
         )
@@ -2073,6 +2030,8 @@ function toTypeScript(
     }
 
     toCode(): string {
+      const expectation = Expectation.from("other", `not matching ${JSON.stringify(this.func.name)}`)
+
       return `
         (() => {
           const result = ${this.func.toCode()}(${this.remainder.toCode()});
@@ -2080,7 +2039,7 @@ function toTypeScript(
           if (result.success) {
             return {
               success: false,
-              expectations: [{type: "other", value: 'Not matching ${JSON.stringify(this.func.source)}'}],
+              expectations: [${expectation.toCode()}],
               remainder: ${this.remainder.toCode()}
             }
           } else {
@@ -2101,14 +2060,131 @@ function toTypeScript(
         text.location,
       );
 
-      this.setBody(
-        new Return(
-          new Extract(
-            Function.from(text.expression),
-            this.args[0],
+      try {
+        this.setBody(
+          new Return(
+            new Capture(text.expression, this.args[0])
           ),
-        ),
+        );
+      } catch (e) {
+        console.log(e);
+        this.setBody(
+          new Return(
+            new Extract(
+              Function.from(text.expression),
+              this.args[0],
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  class Capture implements ReturnNode, ResultNode {
+    regexp: string;
+    value: Node;
+
+    constructor(origin: Origin, value: Node) {
+      this.regexp = `/^${Capture.toRegExpString(origin)}/g`;
+      this.value = value;
+    }
+
+    toType() {
+      return UnionType.from<ResultType>(
+        SuccessType.from(SimpleType.from("string")),
+        FailureType.singleton
       );
+    }
+
+    toCode() {
+      return `(() => { ${this.toReturnCode()} })()`
+    }
+
+    toReturnCode() {
+      const expectation = Expectation.from("other", `matching ${this.regexp}`);
+      return `
+        const matches = ${this.value.toCode()}.match(${this.regexp});
+
+        // console.log(${this.value.toCode()}, "\\n", matches, "\\n", ${this.value.toCode()}.slice(matches?.[0].length), "\\n", ${this.regexp});
+
+        if (matches?.length === 1) {
+          return {
+            success: true,
+            value: matches[0],
+            remainder: ${this.value.toCode()}.slice(matches[0].length)
+          };
+        } else {
+          return {
+            success: false,
+            expectations: [${expectation.toCode()}],
+            remainder: ${this.value.toCode()}
+          }
+        }
+      `;
+    }
+
+    static toRegExpString(origin: Origin): string {
+      switch (origin.type) {
+        case "rule":
+        case "labeled":
+        case "named":
+        case "text":
+        case "group":
+          return Capture.toRegExpString(origin.expression);
+        case "rule_ref":
+          const foundOrigin = grammar.rules.find((r) => r.name === origin.name);
+
+          if (foundOrigin !== undefined) {
+            return Capture.toRegExpString(foundOrigin);
+          } else {
+            throw new Error(`bad rule reference: ${origin.name}`);
+          }
+        case "choice":
+          return `(${origin.alternatives.map(Capture.toRegExpString).join('|')})`;
+        case "sequence":
+          return `${origin.elements.map(Capture.toRegExpString).join('')}`;
+        case "literal":
+          return RegExpLiteral.escape(origin.value);
+        case "optional":
+          return `(${Capture.toRegExpString(origin.expression)})?`;
+        case "simple_not":
+          return `(?!${Capture.toRegExpString(origin.expression)})`;
+        case "zero_or_more":
+          return `(${Capture.toRegExpString(origin.expression)})*`;
+        case "one_or_more":
+          return `(${Capture.toRegExpString(origin.expression)})+`;
+        case "repeated":
+          if (origin.delimiter !== null) {
+            if (typeof origin.max?.value === "number" && origin.max?.value < 2) {
+              console.log(origin);
+              throw new Error("delimiter cannot exist if max count is less than two");
+            }
+
+            const outerOptional = (typeof origin.max?.value !== "number" || origin.min?.value == 0);
+            const innerMin = (typeof origin.min?.value === "number" && origin.min.value > 0) ? origin.min.value - 1 : 0;
+            const innerMax = (typeof origin.max?.value === "number" && origin.max.value > 0) ? origin.max.value - 1 : '';
+            return `(${Capture.toRegExpString(origin.expression)}(${Capture.toRegExpString(origin.delimiter) + Capture.toRegExpString(origin.expression)}){${innerMin},${innerMax}})${outerOptional ? "?" : ""}`;
+          } else {
+            const innerMin = (typeof origin.min?.value === "number" && origin.min.value > 0) ? origin.min.value : 0;
+            const innerMax = (typeof origin.max?.value === "number" && origin.max.value > 0) ? origin.max.value : '';
+
+            return `(${Capture.toRegExpString(origin.expression)}){${innerMin},${innerMax}}`
+          }
+        case "any":
+          return ".";
+        case "class":
+          const expression = new RegExpLiteral(origin).toCode();
+
+          if (expression[expression.length - 1] === "i") {
+            throw new Error("cannot ignore case in nested class");
+          } else {
+            return expression.slice(2, -1);
+          }
+        case "action":
+        default:
+          console.log(origin);
+          throw new Error(`Expression with ${origin.type} cannot be expressed as a regular expression.`)
+      }
     }
   }
 
@@ -2477,7 +2553,7 @@ function toTypeScript(
               new Slice(this.args[0], new NumberLiteral(literal.value.length)),
             ),
             new Failure(
-              [new LiteralExpectation(literal)],
+              [Expectation.from("literal", literal.value)],
               this.args[0],
             ),
           ),
@@ -2526,6 +2602,22 @@ function toTypeScript(
         .replace(/\v/g, "\\v")
         .replace(/\f/g, "\\f")
         .replace(/\r/g, "\\r")
+        .replace(/\./g, "\\.")
+        .replace(/\(/g, "\\(")
+        .replace(/\)/g, "\\)")
+        .replace(/\{/g, "\\{")
+        .replace(/\}/g, "\\}")
+        .replace(/\[/g, "\\[")
+        .replace(/\]/g, "\\]")
+        .replace(/\*/g, "\\*")
+        .replace(/\+/g, "\\+")
+        .replace(/\|/g, "\\|")
+        .replace(/\^/g, "\\^")
+        .replace(/\$/g, "\\$")
+        .replace(/\?/g, "\\?")
+        .replace(/\!/g, "\\!")
+        .replace(/\</g, "\\<")
+        .replace(/\>/g, "\\>")
         .replace(/[\x00-\x0F]/g, (ch) => "\\x0" + hex(ch))
         .replace(/[\x10-\x1F\x7F-\xFF]/g, (ch) => "\\x" + hex(ch))
         .replace(/[\u0100-\u0FFF]/g, (ch) => "\\u0" + hex(ch))
@@ -2578,7 +2670,7 @@ function toTypeScript(
               new Slice(this.args[0], new NumberLiteral(1)),
             ),
             new Failure(
-              [new AnyExpectation()],
+              [Expectation.from("any", "any character")],
               this.args[0],
             ),
           ),
@@ -2642,7 +2734,7 @@ function toTypeScript(
               new Slice(this.args[0], new NumberLiteral(1)),
             ),
             new Failure(
-              [new ClassExpectation(cls)],
+              [Expectation.from("pattern", regexp.toCode())],
               this.args[0],
             ),
           ),
@@ -2863,6 +2955,8 @@ function toTypeScript(
 
     ${getHeaderCode()}
 
+    ${reusables.filter(r => r instanceof Expectation).map((r) => r.toDefinition()).join("\n")}
+
     export function parse(input: string, options: runtime.ParseOptions = new runtime.ParseOptions()): ${parser.returnType.unwrap().toCode()} {
       const parse$lines = input.split(/\\r\\n|\\r|\\n/);
       const parse$totalLength = input.length;
@@ -2872,13 +2966,15 @@ function toTypeScript(
 
       const result = ${parser.name}(input);
 
-      if (result.success) {
+      if (result.success === true) {
         return result.value;
       } else {
-        throw new Error(result.toString());
+        throw new Error("expected:\\n* " + result.expectations.map(e => e.value).join("\\n* ") + "\\n\\nremainder:\\n" + result.remainder);
       }
 
-      ${reusables.map((r) => r.toDefinition()).join("\n")}
+      ${reusables.filter(r => r instanceof Interface).map((r) => r.toDefinition()).join("\n")}
+      ${reusables.filter(r => r instanceof Code).map((r) => r.toDefinition()).join("\n")}
+      ${reusables.filter(r => r instanceof Function).map((r) => r.toDefinition()).join("\n")}
     }
   `;
 

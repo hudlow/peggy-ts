@@ -114,32 +114,7 @@ const runtime = `
     }
 
     export interface Expectation {
-      type: "literal" | "class" | "any" | "end" | "other";
-      value: string;
-    }
-
-    export interface LiteralExpectation extends Expectation {
-      type: "literal";
-      value: string;
-    }
-
-    export interface ClassExpectation extends Expectation {
-      type: "class";
-      value: string;
-    }
-
-    export interface AnyExpectation extends Expectation {
-      type: "any";
-      value: "any character";
-    }
-
-    export interface EndExpectation extends Expectation {
-      type: "end";
-      value: "end of input";
-    }
-
-    export interface OtherExpectation extends Expectation {
-      type: "other";
+      type: "literal" | "class" | "any" | "end" | "pattern" | "other";
       value: string;
     }
 
@@ -159,82 +134,6 @@ const runtime = `
         });
    }
 
-//     export class LiteralExpectation implements Expectation {
-//       type: "literal" = "literal";
-//       text: string;
-//       ignoreCase: boolean;
-//
-//       constructor(text: string, ignoreCase: boolean) {
-//         this.text = text;
-//         this.ignoreCase = ignoreCase;
-//       }
-//
-//       toString(): string {
-//         return '"' + escape(this.text) + '"';
-//       }
-//
-//       static escape(s: string): string {
-//         return s
-//           .replace(/\\\\/g, "\\\\\\\\")
-//           .replace(/"/g, '\\\\"')
-//           .replace(/\\0/g, "\\\\0")
-//           .replace(/\\t/g, "\\\\t")
-//           .replace(/\\n/g, "\\\\n")
-//           .replace(/\\r/g, "\\\\r")
-//           .replace(/[\\x00-\\x0F]/g, function (ch) {
-//             return "\\\\x0" + hex(ch);
-//           })
-//           .replace(/[\\x10-\\x1F\\x7F-\\x9F]/g, function (ch) {
-//             return "\\\\x" + hex(ch);
-//           });
-//       }
-//     }
-
-//     export interface ClassExpectation extends Expectation {
-//       type: "class" = "class";
-//       parts: (string | string[])[];
-//       inverted: boolean;
-//       ignoreCase: boolean;
-//
-//       constructor(
-//         parts: (string | string[])[],
-//         inverted: boolean,
-//         ignoreCase: boolean,
-//       ) {
-//         this.parts = parts;
-//         this.inverted = inverted;
-//         this.ignoreCase = ignoreCase;
-//       }
-//
-//       toString(): string {
-//         const escapedParts = this.parts.map((part) => {
-//           return Array.isArray(part)
-//             ? ClassExpectation.escape(part[0]) + "-" +
-//               ClassExpectation.escape(part[1])
-//             : ClassExpectation.escape(part);
-//         });
-//         return "[" + (this.inverted ? "^" : "") + escapedParts.join("") + "]";
-//       }
-//
-//       static escape(s: string): string {
-//         return s
-//           .replace(/\\\\/g, "\\\\\\\\")
-//           .replace(/\\]/g, "\\\\]")
-//           .replace(/\\^/g, "\\\\^")
-//           .replace(/-/g, "\\\\-")
-//           .replace(/\\0/g, "\\\\0")
-//           .replace(/\\t/g, "\\\\t")
-//           .replace(/\\n/g, "\\\\n")
-//           .replace(/\\r/g, "\\\\r")
-//           .replace(/[\\x00-\\x0F]/g, function (ch) {
-//             return "\\\\x0" + hex(ch);
-//           })
-//           .replace(/[\\x10-\\x1F\\x7F-\\x9F]/g, function (ch) {
-//             return "\\\\x" + hex(ch);
-//           });
-//       }
-//     }
-
     export class ParseFailure {
     }
 
@@ -248,70 +147,23 @@ const runtime = `
       [index: string]: unknown;
     }
 
-    export interface Result {
-      success: boolean;
+    export type Result<T> = Failure | Success<T>;
+
+    export interface Failure {
+      success: false;
+      expectations: Expectation[];
       remainder: string;
     }
 
-    export interface Failure extends Result {
-      success: false;
-      expectations: Expectation[];
-    }
-
-    export interface Success<T> extends Result {
+    export interface Success<T> {
       success: true;
       value: T;
+      remainder: string;
     }
 
-    export function isFailure(r: Result): r is Failure {
+    export function isFailure(r: Result<unknown>): r is Failure {
       return !r.success;
     }
-
-//     export class Failure {
-//       value: Expectation[];
-//       remainder: string;
-//
-//       constructor(value: Expectation[], remainder: string) {
-//         this.value = value;
-//         this.remainder = remainder;
-//       }
-//
-//       toString() {
-//         return \`Expected one of: \${this.value.map((e) => "\\n * " + (typeof e === "string" ? e : e.value)).join()} \\nGot: "\${this.remainder.slice(0, 1)} [...]"\\n\`;
-//       }
-//     }
-//
-//     export class Success<T> {
-//       readonly value: T;
-//       readonly remainder: string;
-//       readonly label?: string | null;
-//
-//       constructor(value: T, remainder: string, label?: string | null) {
-//         this.value = value;
-//         this.remainder = remainder;
-//         this.label = label;
-//       }
-//     }
-//
-//     export class SuccessTuple<T extends unknown[]> extends Success<T> {
-//       constructor(value: T, remainder: string, label?: string | null) {
-//         super(value, remainder, label);
-//       }
-//
-//       with<I extends keyof T>(
-//         index: I,
-//         result: Success<T[I & number]> | Failure,
-//       ): SuccessTuple<T> | Failure {
-//         if (result instanceof Failure) {
-//           return result;
-//         } else {
-//           const arr: T = this.value;
-//           arr[index] = result.value;
-//
-//           return new SuccessTuple<T>(arr, result.remainder);
-//         }
-//       }
-//     }
 
     function getLine(input: string, offset: number) {
       let line = 1;

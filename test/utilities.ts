@@ -15,7 +15,7 @@
 import * as vm from "node:vm";
 import * as Peggy from "peggy";
 import * as Morph from "ts-morph";
-import * as plugin from "../index";
+import * as plugin from "../index.ts";
 
 export function generate(grammarSource: string): string {
   const parser = Peggy.generate(
@@ -68,7 +68,8 @@ export function run(
   );
 
   const emitOutput = file.getEmitOutput();
-  let compiledCode: string;
+  let compiledCode: string = "";
+
   for (const outputFile of emitOutput.getOutputFiles()) {
     if (outputFile.getFilePath().endsWith(`${file.getBaseNameWithoutExtension()}.js`)) {
       compiledCode = outputFile.getText();
