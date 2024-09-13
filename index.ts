@@ -485,7 +485,7 @@ function toTypeScript(
         do {
           result = ${this.func.toCode()}(r);
 
-          if (result.success) {
+          if (result.success === true) {
             r = result.remainder;
             results.push(result.value);` + (
         this.delimiter !== undefined // there's a bug here because we'll consume a trailing delimiter
@@ -2211,7 +2211,7 @@ function toTypeScript(
         (() => {
           const result = ${this.func.toCode()}(${this.remainder.toCode()});
 
-          if (result.success) {
+          if (result.success === true) {
             return {
               success: true,
               value: ${this.remainder.toCode()}.slice(
@@ -2220,7 +2220,7 @@ function toTypeScript(
               remainder: result.remainder
             }
           } else {
-            return result as runtime.Failure;
+            return result;
           }
         })()
       `;
@@ -2834,7 +2834,7 @@ function toTypeScript(
         (r: string) => {
           const result = ${this.func.name}(r);
 
-          if (result.success) {
+          if (result.success === true) {
             return {
               success: true.
               value: {
@@ -2843,7 +2843,7 @@ function toTypeScript(
               remainder: result.remainder
             };
           } else {
-            return result as runtime.Failure;
+            return result;
           }
         }
       `;
@@ -2894,37 +2894,6 @@ function toTypeScript(
           remainder
         }
       })()`;
-
-
-      //   `[${this.funcs.map((f) => f.toCode()).join(", ")}].reduce(
-      //     (
-      //       partialValue:
-      //         | runtime.Success<Partial<${this.interface.toCode()}>>
-      //         | runtime.Failure,
-      //       func
-      //     ) => {
-      //       if (partialValue.success) {
-      //         const result = func(partialValue.remainder);
-      //         if (result.success) {
-      //           return {
-      //             success: true,
-      //             value: [...partialValue.value, result.value],
-      //             remainder: result.remainder
-      //           }
-      //         } else {
-      //           return result as runtime.Failure;
-      //         }
-      //       } else {
-      //         return partialValue;
-      //       }
-      //     },
-      //     {
-      //       success: true,
-      //       value: [],
-      //       remainder: ${this.remainder.toCode()}
-      //     } as runtime.Success<Partial<${this.interface.toCode()}>>
-      //   ) as runtime.Success<${this.interface.toCode()}> | runtime.Failure
-      // `;
     }
 
     toType(): ResultType {

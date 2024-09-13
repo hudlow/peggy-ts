@@ -138,11 +138,11 @@ const runtime = `
     }
 
     export class ParseOptions {
-      currentPosition: number = 0;
-      silentFails: number = 0;
-      maxFailExpected: Expectation[] = [];
-      grammarSource: string | GrammarLocation = "";
-      library: boolean = false;
+      currentPosition?: number;
+      silentFails?: number;
+      maxFailExpected?: Expectation[];
+      grammarSource?: string | GrammarLocation;
+      library?: boolean;
       startRule?: string;
       [index: string]: unknown;
     }
@@ -202,13 +202,13 @@ const runtime = `
         source,
         start: {
           offset: input.length - start.length,
-          line: getLine(input, start.length),
-          column: getColumn(input, start.length)
+          line: getLine(input, input.length - start.length),
+          column: getColumn(input, input.length - start.length)
         },
         end: {
           offset: input.length - remainder.length,
-          line: getLine(input, remainder.length),
-          column: getColumn(input, remainder.length)
+          line: getLine(input, input.length - remainder.length),
+          column: getColumn(input, input.length - remainder.length)
         },
       }
     }
@@ -222,7 +222,7 @@ const runtime = `
     }
 
     export function getText(start: string, remainder: string) {
-      return start.slice(0, -remainder.length)
+      return start.slice(0, remainder.length > 1 ? -remainder.length : undefined)
     }
   }
 `;

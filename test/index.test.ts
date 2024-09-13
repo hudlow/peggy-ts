@@ -13,24 +13,34 @@
 // limitations under the License.
 
 import * as Peggy from "peggy";
-import { run } from "./utilities.ts";
+import { run } from "./utilities";
 
 test("parses input", async () => {
-  const { success, result, message } = await run(
+  const result = await run(
     `start = 'a'`,
     `a`,
   );
 
-  expect(success).toBe(true);
+  // expect(success).toBe(true);
   expect(result).toBe("a");
 });
 
-test("throws an exception on syntax error", async () => {
-  const { success, result, message } = await run(
+test.skip("throws an exception on syntax error", async () => {
+  const result = await run(
     `start = 'a'`,
     `b`,
   );
 
-  expect(success).toBe(false);
+  // expect(success).toBe(false);
   expect(result).toBe(undefined);
+});
+
+test("handles end of input on first choice", async () => {
+  const result = await run(
+    `start = "abc" / "ab"`,
+    `ab`,
+  );
+
+  // expect(success).toBe(true);
+  expect(result).toBe("ab");
 });

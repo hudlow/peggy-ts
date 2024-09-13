@@ -17,44 +17,16 @@ import * as Peggy from "peggy";
 import * as Morph from "ts-morph";
 import * as plugin from "../index.ts";
 
-export function generate(grammarSource: string): string {
-  const parser = Peggy.generate(
+export function generate(grammarSource: string, control: boolean = false): Function {
+  const source = Peggy.generate(
     grammarSource,
     {
       format: "es",
       output: "source",
-      plugins: [plugin],
+      plugins: control ? [] : [plugin],
       grammarSource,
     },
   );
-
-  return parser;
-}
-
-export interface Result {
-  success: boolean;
-  result?: string;
-  message?: string;
-}
-
-export function run(
-  grammarSource: string,
-  input: string,
-): Result {
-  const parser = generate(grammarSource);
-  const source = `
-    const success = true;
-
-    ${parser}
-
-    try {
-      success = true;
-      result = parse(${JSON.stringify(input)});
-    } catch (e: Error) {
-      success = false;
-      message = e.message;
-    }
-  `;
 
   const project = new Morph.Project({
     compilerOptions: {
@@ -63,7 +35,7 @@ export function run(
   });
 
   const file = project.createSourceFile(
-    "__temp__.ts",
+    "__parser__.ts",
     source,
   );
 
@@ -71,21 +43,36 @@ export function run(
   let compiledCode: string = "";
 
   for (const outputFile of emitOutput.getOutputFiles()) {
-    if (outputFile.getFilePath().endsWith(`${file.getBaseNameWithoutExtension()}.js`)) {
+    if (outputFile.getFilePath().endsWith(`__parser__.js`)) {
       compiledCode = outputFile.getText();
     } else {
       throw new Error(`unexpected file: ${outputFile.getFilePath()}`);
     }
   }
 
-  const context = {
-    exports: {},
-    success: false,
-    result: undefined,
-    message: undefined
+  const context: Result = {
+    exports: {}
   };
 
   vm.runInNewContext(compiledCode, context);
 
-  return context;
+  if (typeof context.exports?.parse === "function") {
+    return context.exports?.parse;
+  } else {
+    throw new Error();
+  }
+}
+
+export interface Result {
+  exports: Record<string, unknown>
+}
+
+export function run(
+  grammarSource: string,
+  input: string,
+  control: boolean = false
+): Result {
+  const parse = generate(grammarSource, control);
+
+  return parse(input);
 }
