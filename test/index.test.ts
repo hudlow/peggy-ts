@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import * as Peggy from "peggy";
-import { run } from "./utilities";
+import { run } from "./utilities.ts";
 
 test("parses input", async () => {
   const result = await run(

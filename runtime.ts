@@ -7,13 +7,13 @@ const runtime = `
     }
 
     export interface LocationRange {
-      source: string | GrammarLocation;
+      source?: string | GrammarLocation;
       start: Location;
       end: Location;
     }
 
     export interface Range {
-      source: string | GrammarLocation;
+      source?: string | GrammarLocation;
       start: number;
       end: number;
     }
@@ -197,7 +197,7 @@ const runtime = `
       return column;
     }
 
-    export function getLocation(source: string | GrammarLocation, input: string, start: string, remainder: string): runtime.LocationRange {
+    export function getLocation(source: string | GrammarLocation | undefined, input: string, start: string, remainder: string): runtime.LocationRange {
       return {
         source,
         start: {
@@ -213,7 +213,7 @@ const runtime = `
       }
     }
 
-    export function getRange(source: string | GrammarLocation, input: string, start: string, remainder: string) {
+    export function getRange(source: string | GrammarLocation | undefined, input: string, start: string, remainder: string) {
       return {
         source,
         start: input.length - start.length,

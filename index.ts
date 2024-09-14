@@ -27,7 +27,6 @@ export function use(config: Peggy.Config, options: Peggy.ParserBuildOptions) {
     try {
       return toTypeScript(...args)
     } catch (e) {
-      console.error(e);
       throw e;
     }
   }];
@@ -2067,7 +2066,6 @@ function toTypeScript(
           ),
         );
       } catch (e) {
-        console.log(e);
         this.setBody(
           new Return(
             new Extract(
@@ -2100,12 +2098,11 @@ function toTypeScript(
       return `(() => { ${this.toReturnCode()} })()`
     }
 
+    // @todo detect cycles and bail out
     toReturnCode() {
       const expectation = Expectation.from("other", `matching ${this.regexp}`);
       return `
         const matches = ${this.value.toCode()}.match(${this.regexp});
-
-        // console.log(${this.value.toCode()}, "\\n", matches, "\\n", ${this.value.toCode()}.slice(matches?.[0].length), "\\n", ${this.regexp});
 
         if (matches?.length === 1) {
           return {
@@ -2156,7 +2153,6 @@ function toTypeScript(
         case "repeated":
           if (origin.delimiter !== null) {
             if (typeof origin.max?.value === "number" && origin.max?.value < 2) {
-              console.log(origin);
               throw new Error("delimiter cannot exist if max count is less than two");
             }
 
@@ -2182,7 +2178,6 @@ function toTypeScript(
           }
         case "action":
         default:
-          console.log(origin);
           throw new Error(`Expression with ${origin.type} cannot be expressed as a regular expression.`)
       }
     }
@@ -2954,8 +2949,6 @@ function toTypeScript(
 
   file.formatText({ indentSize: 2 });
   project.resolveSourceFileDependencies();
-
-  // console.log(project.getPreEmitDiagnostics());
 
   const formattedCode = file.getText();
 
