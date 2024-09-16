@@ -69,9 +69,9 @@ can rely more on type checking within my plugin code to produce a correct progra
   Modern JavaScript is really fast.
 - Uhm, I don't even try to name generated functions and types nicely right now. Just haven't gotten
   around to it.
-- There is one spot in generated code where I use `as` casting. I think it's simple enough that one
+- ~There is one spot in generated code where I use `as` casting. I think it's simple enough that one
   can be quite confident that it's always correct, but I worked a long time to no avail to try to
-  eliminate it.
+  eliminate it.~ Generated code does not use any `as` casting.
 
 If you have questions or comments feel free to open an issue or discussion or ping me on the
 [CNCF Slack][slack].

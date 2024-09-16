@@ -500,12 +500,11 @@ function toTypeScript(
         } while (
           result.success`) +
         (this.max !== undefined ? `&& results.length <= ${this.max}` : "") +
-        `);` +
+        `);\n` +
         (
           this.min
-            ? `if (results.length < ${this.min}) {
-              // the loop above guarantees this will be a failure
-              return result as runtime.Failure;
+            ? `if (results.length < ${this.min} && result.success === false /* technically redundant */) {
+              return result;
             } else {
               return { success: true, value: results, remainder: r };
             }`
@@ -1782,7 +1781,7 @@ function toTypeScript(
     }
 
     toCode() {
-      return new As(this.node, FailureType.singleton).toCode();
+      return this.node.toCode();
     }
 
     toType() {
@@ -1830,35 +1829,17 @@ function toTypeScript(
               this.args,
             ),
             (a) => new IfElse(
-              new Access(a, StringLiteral.from("success")),
+              new Equals(new Access(a, StringLiteral.from("success")), BooleanLiteral.from(true)),
               new IfElse(
                 new Equals(new Length(new Access(a, StringLiteral.from("remainder"))), new NumberLiteral(0)),
                 a,
                 new Failure([Expectation.from("end", "end of input")], new Access(a, StringLiteral.from("remainder")))
               ),
-              new As(a, FailureType.singleton)
+              a
             )
           )
         ),
       );
-    }
-  }
-
-  class As implements ResultNode {
-    node: ResultNode;
-    type: ResultType;
-
-    constructor(node: ResultNode, type: ResultType) {
-      this.node = node;
-      this.type = type;
-    }
-
-    toCode(): string {
-      return `${this.node.toCode()} as ${this.type.toCode()}`;
-    }
-
-    toType(): ResultType {
-      return this.type;
     }
   }
 
@@ -2356,7 +2337,7 @@ function toTypeScript(
         attempt,
         (a) =>
           new IfElse(
-            new Access(a, StringLiteral.from("success")),
+            new Equals(new Access(a, StringLiteral.from("success")), BooleanLiteral.from(true)),
             then !== undefined ? then(a) : a,
             fallback !== undefined ? fallback(a) : new KnownFailure(a),
           ),
@@ -2944,8 +2925,6 @@ function toTypeScript(
 
     ${reusables.filter(r => r instanceof Expectation).map((r) => r.toDefinition()).join("\n")}
     ${reusables.filter(r => r instanceof Interface).map((r) => r.toDefinition()).join("\n")}
-
-    // [${reusables.map(r => r.name).join()}]
 
     export function parse(input: string, options: runtime.ParseOptions = new runtime.ParseOptions()): ${parser.returnType.unwrap().toCode()} {
       const parse$lines = input.split(/\\r\\n|\\r|\\n/);
