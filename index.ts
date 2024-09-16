@@ -478,38 +478,44 @@ function toTypeScript(
     }
 
     toReturnCode(): string {
-      return (`
-        const results: Array<${this.func.returnType.unwrap().toCode()}> = [];
-        let r = ${this.remainder.toCode()};
+      return `
+        const values: Array<${this.func.returnType.unwrap().toCode()}> = [];
+        let remainder = ${this.remainder.toCode()};
         let result;
 
         do {
-          result = ${this.func.toCode()}(r);
-
-          if (result.success === true) {
-            r = result.remainder;
-            results.push(result.value);` + (
-        this.delimiter !== undefined // there's a bug here because we'll consume a trailing delimiter
-          ? `
+          let r = remainder;
+          ${this.delimiter ?
+            `
+              if (values.length > 0) {
                 result = ${this.delimiter.toCode()}(r);
+
+                if (result.success === false) {
+                  break;
+                }
+
                 r = result.remainder;
-              `
-          : ""
-      ) + `
+              }`
+            : ``
           }
-        } while (
-          result.success`) +
-        (this.max !== undefined ? `&& results.length <= ${this.max}` : "") +
-        `);\n` +
-        (
-          this.min
-            ? `if (results.length < ${this.min} && result.success === false /* technically redundant */) {
+
+          result = ${this.func.toCode()}(r);
+          if (result.success === false) {
+            break;
+          }
+
+          remainder = result.remainder;
+          values.push(result.value);
+        } while (${this.max !== undefined ? `&& values.length <= ${this.max}` : `true`});
+
+        ${this.min ?
+          `if (values.length < ${this.min} && result.success === false /* technically redundant */) {
               return result;
             } else {
-              return { success: true, value: results, remainder: r };
+              return { success: true, value: values, remainder };
             }`
-            : `return { success: true, value: results, remainder: r };`
-        );
+            : `return { success: true, value: values, remainder };`
+        }`;
     }
   }
 
@@ -1117,9 +1123,8 @@ function toTypeScript(
     toDefinition(): string {
       return `
         type ${this.name} = [` +
-        this.properties.map((p) => p.type.toCode()).join() + `
-        ]
-      `;
+          this.properties.map((p) => p.type.toCode()).join() +
+        `]`;
     }
 
     toCode(): string {
@@ -2083,7 +2088,6 @@ function toTypeScript(
       return `(() => { ${this.toReturnCode()} })()`
     }
 
-    // @todo detect cycles and bail out
     toReturnCode() {
       return `
         const matches = ${this.value.toCode()}.match(${this.regexp});
@@ -2104,36 +2108,40 @@ function toTypeScript(
       `;
     }
 
-    static toRegExpString(origin: Origin): string {
+    static toRegExpString(origin: Origin, parents: Origin[] = []): string {
+      if (parents.indexOf(origin) !== -1) {
+        throw new Error("Cannot represent recursion in a regular expression.");
+      }
+
       switch (origin.type) {
         case "rule":
         case "labeled":
         case "named":
         case "text":
         case "group":
-          return Capture.toRegExpString(origin.expression);
+          return Capture.toRegExpString(origin.expression, [...parents, origin]);
         case "rule_ref":
           const foundOrigin = grammar.rules.find((r) => r.name === origin.name);
 
           if (foundOrigin !== undefined) {
-            return Capture.toRegExpString(foundOrigin);
+            return Capture.toRegExpString(foundOrigin, [...parents, origin]);
           } else {
             throw new Error(`bad rule reference: ${origin.name}`);
           }
         case "choice":
-          return `(${origin.alternatives.map(Capture.toRegExpString).join('|')})`;
+          return `(${origin.alternatives.map(a => Capture.toRegExpString(a, [...parents, origin])).join('|')})`;
         case "sequence":
-          return `${origin.elements.map(Capture.toRegExpString).join('')}`;
+          return `${origin.elements.map(e => Capture.toRegExpString(e, [...parents, origin])).join('')}`;
         case "literal":
           return RegExpLiteral.escapeLiteral(origin.value);
         case "optional":
-          return `(${Capture.toRegExpString(origin.expression)})?`;
+          return `(${Capture.toRegExpString(origin.expression, [...parents, origin])})?`;
         case "simple_not":
-          return `(?!${Capture.toRegExpString(origin.expression)})`;
+          return `(?!${Capture.toRegExpString(origin.expression, [...parents, origin])})`;
         case "zero_or_more":
-          return `(${Capture.toRegExpString(origin.expression)})*`;
+          return `(${Capture.toRegExpString(origin.expression, [...parents, origin])})*`;
         case "one_or_more":
-          return `(${Capture.toRegExpString(origin.expression)})+`;
+          return `(${Capture.toRegExpString(origin.expression, [...parents, origin])})+`;
         case "repeated":
           if (origin.delimiter !== null) {
             if (typeof origin.max?.value === "number" && origin.max?.value < 2) {
@@ -2143,12 +2151,12 @@ function toTypeScript(
             const outerOptional = (typeof origin.max?.value !== "number" || origin.min?.value == 0);
             const innerMin = (typeof origin.min?.value === "number" && origin.min.value > 0) ? origin.min.value - 1 : 0;
             const innerMax = (typeof origin.max?.value === "number" && origin.max.value > 0) ? origin.max.value - 1 : '';
-            return `(${Capture.toRegExpString(origin.expression)}(${Capture.toRegExpString(origin.delimiter) + Capture.toRegExpString(origin.expression)}){${innerMin},${innerMax}})${outerOptional ? "?" : ""}`;
+            return `(${Capture.toRegExpString(origin.expression, [...parents, origin])}(${Capture.toRegExpString(origin.delimiter, [...parents, origin]) + Capture.toRegExpString(origin.expression, [...parents, origin])}){${innerMin},${innerMax}})${outerOptional ? "?" : ""}`;
           } else {
             const innerMin = (typeof origin.min?.value === "number" && origin.min.value > 0) ? origin.min.value : 0;
             const innerMax = (typeof origin.max?.value === "number" && origin.max.value > 0) ? origin.max.value : '';
 
-            return `(${Capture.toRegExpString(origin.expression)}){${innerMin},${innerMax}}`
+            return `(${Capture.toRegExpString(origin.expression, [...parents, origin])}){${innerMin},${innerMax}}`
           }
         case "any":
           return ".";
@@ -2162,7 +2170,7 @@ function toTypeScript(
           }
         case "action":
         default:
-          throw new Error(`Expression with ${origin.type} cannot be expressed as a regular expression.`)
+          throw new Error(`Cannot represent ${origin.type} in a regular expression.`)
       }
     }
   }
@@ -2193,9 +2201,7 @@ function toTypeScript(
           if (result.success === true) {
             return {
               success: true,
-              value: ${this.remainder.toCode()}.slice(
-                0, ${this.remainder.toCode()}.length - result.remainder.length
-              ),
+              value: ${this.remainder.toCode()}.slice(0, ${this.remainder.toCode()}.length - result.remainder.length),
               remainder: result.remainder
             }
           } else {
@@ -2426,26 +2432,31 @@ function toTypeScript(
 
       const elements = sequence.elements.map((e) => Function.from(e));
       const reduction = new Reduction(elements, this.args[0]);
-      const pick = reduction.funcs.find((f) => f instanceof Pick);
 
-      if (pick === undefined) {
-        this.setBody(
-          new Return(reduction),
-        );
-      } else {
-        this.setBody(
-          new Return(
-            new Attempt(
-              reduction,
-              (r: ResultProxy<Reduction>) =>
-                new Success(
-                  new Picker(r, pick),
-                  new Access(r, StringLiteral.from("remainder")),
-                ),
-            ),
-          ),
-        );
-      }
+      this.setBody(
+        new Return(reduction),
+      );
+
+//       const pick = reduction.funcs.find((f) => f instanceof Pick);
+//
+//       if (pick === undefined) {
+//         this.setBody(
+//           new Return(reduction),
+//         );
+//       } else {
+//         this.setBody(
+//           new Return(
+//             new Attempt(
+//               reduction,
+//               (r: ResultProxy<Reduction>) =>
+//                 new Success(
+//                   new Picker(r, pick),
+//                   new Access(r, StringLiteral.from("remainder")),
+//                 ),
+//             ),
+//           ),
+//         );
+//       }
     }
   }
 
@@ -2505,9 +2516,7 @@ function toTypeScript(
         this.start.toCode() +
         (this.length.toType() !== SimpleType.from("undefined")
           ? `, ${this.length.toCode()}`
-          : "") +
-        `
-      )`;
+          : "") + `)`;
     }
 
     toType(): Type {
@@ -2857,6 +2866,8 @@ function toTypeScript(
     interface: Interface;
     remainder: Argument;
     funcs: Function[];
+    pickIndex: number;
+    type: ResultType;
 
     constructor(funcs: Function[], remainder: Argument) {
       const intf = Interface.from(
@@ -2868,36 +2879,48 @@ function toTypeScript(
       this.interface = intf;
       this.funcs = funcs;
       this.remainder = remainder;
+      this.pickIndex = this.funcs.findIndex((f) => f instanceof Pick);
+
+      this.valueType = this.pickIndex !== -1 ? (this.interface.properties[this.pickIndex] as Property).type : this.interface;
     }
 
-    toCode() {
-      return `(() => {
+    toReturnCode() {
+      return `
         let remainder = ${this.remainder.toCode()};
         ${this.funcs.map((f, i) => `
           const result${i} = ${f.toCode()}(remainder);
 
-          if (runtime.isFailure(result${i})) {
+          if (result${i}.success === false) {
             return result${i};
           } else {
             remainder = result${i}.remainder;
           }
         `).join("\n")}
 
-        const value: ${this.interface.toCode()} = [
-          ${this.funcs.map((f, i) => `result${i}.value`).join()}
-        ]
+        ${this.pickIndex !== -1 ? `
+          return {
+            success: true,
+            value: result${this.pickIndex}.value,
+            remainder
+          }`
+          :
+          `return {
+            success: true,
+            value: [${this.funcs.map((f, i) => `result${i}.value`).join()}],
+            remainder
+          }`
+        }`;
+    }
 
-        return {
-          success: true,
-          value,
-          remainder
-        }
+    toCode() {
+      return `((): runtime.Success<${this.interface.toCode()}> | runtime.Failure => {
+        ${this.toReturnCode()}
       })()`;
     }
 
     toType(): ResultType {
       return UnionType.from<ResultType>(
-        SuccessType.from(this.interface),
+        SuccessType.from(this.valueType),
         FailureType.singleton,
       );
     }

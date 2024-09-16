@@ -25,16 +25,6 @@ test("parses input", async () => {
   expect(result).toBe("a");
 });
 
-test.skip("throws an exception on syntax error", async () => {
-  const result = await run(
-    `start = 'a'`,
-    `b`,
-  );
-
-  // expect(success).toBe(false);
-  expect(result).toBe(undefined);
-});
-
 test("handles end of input on first choice", async () => {
   const result = await run(
     `start = "abc" / "ab"`,
@@ -43,4 +33,22 @@ test("handles end of input on first choice", async () => {
 
   // expect(success).toBe(true);
   expect(result).toBe("ab");
+});
+
+test("does not consume trailing delimiter", async () => {
+  expect(
+    () => run(
+      `start = "a"|1..,"."|`,
+      `a.a.a.a.`,
+    )
+  ).toThrow();
+});
+
+test("does not consume leading delimiter", async () => {
+  expect(
+    () => run(
+      `start = "a"|1..,"."|`,
+      `.a.a.a.a`,
+    )
+  ).toThrow();
 });
