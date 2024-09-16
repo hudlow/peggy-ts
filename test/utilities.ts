@@ -17,7 +17,7 @@ import * as Peggy from "peggy";
 import * as Morph from "ts-morph";
 import * as plugin from "../index.ts";
 
-export function generate(grammarSource: string, control: boolean = false): Function {
+export function generate(grammarSource: string, control: boolean = false): Peggy.Parser {
   const source = Peggy.generate(
     grammarSource,
     {
@@ -29,9 +29,7 @@ export function generate(grammarSource: string, control: boolean = false): Funct
   );
 
   const project = new Morph.Project({
-    compilerOptions: {
-      target: Morph.ScriptTarget.ES5
-    }
+    compilerOptions: plugin.getCompilerOptions()
   });
 
   const file = project.createSourceFile(
@@ -50,29 +48,19 @@ export function generate(grammarSource: string, control: boolean = false): Funct
     }
   }
 
-  const context: Result = {
-    exports: {}
-  };
+  const context = { exports: {} };
 
   vm.runInNewContext(compiledCode, context);
 
-  if (typeof context.exports?.parse === "function") {
-    return context.exports?.parse;
-  } else {
-    throw new Error();
-  }
-}
-
-export interface Result {
-  exports: Record<string, unknown>
+  return (context.exports as unknown as Peggy.Parser);
 }
 
 export function run(
   grammarSource: string,
   input: string,
   control: boolean = false
-): Result {
-  const parse = generate(grammarSource, control);
+): any {
+  const parser = generate(grammarSource, control);
 
-  return parse(input);
+  return parser.parse(input);
 }

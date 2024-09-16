@@ -56,57 +56,17 @@ const runtime = `
       }
     }
 
-    export class ParserSyntaxError extends Error {
-      expected: Expectation[];
-      found: string | null;
-      location: LocationRange;
+    export function padEnd(str: string, targetLength: number, padString: string) {
+      padString = padString || " ";
+      if (str.length > targetLength) { return str; }
+      targetLength -= str.length;
+      padString += padString.repeat(targetLength);
+      return str + padString.slice(0, targetLength);
+    }
 
-      constructor(
-        expected: Expectation[],
-        found: string | null,
-        location: LocationRange,
-      ) {
-        super(ParserSyntaxError.formatMessage(expected, found));
-        this.expected = expected;
-        this.found = found;
-        this.location = location;
-      }
-
-      static formatMessage(expected: Expectation[], found: string | null): string {
-        function describeExpected(expected: Expectation[]): string {
-          const descriptions = expected.map(String);
-          descriptions.sort();
-          if (descriptions.length > 0) {
-            let j = 1;
-            for (let i = 1; i < descriptions.length; i++) {
-              if (descriptions[i - 1] !== descriptions[i]) {
-                descriptions[j] = descriptions[i];
-                j++;
-              }
-            }
-            descriptions.length = j;
-          }
-          switch (descriptions.length) {
-            case 1:
-              return descriptions[0];
-            case 2:
-              return descriptions[0] + " or " + descriptions[1];
-            default:
-              return descriptions.slice(0, -1).join(", ") +
-                ", or" +
-                descriptions[descriptions.length - 1];
-          }
-        }
-
-        function describeFound(found: string | null): string {
-          return found
-            ? '"' + escape(found) + '"'
-            : "end of input";
-        }
-
-        return "Expected " + describeExpected(expected) + " but " +
-          describeFound(found) + " found.";
-      }
+    export interface SourceText {
+      source: any;
+      text: string;
     }
 
     function hex(ch: string): string {
@@ -222,7 +182,96 @@ const runtime = `
     }
 
     export function getText(start: string, remainder: string) {
-      return start.slice(0, remainder.length > 1 ? -remainder.length : undefined)
+      return start.slice(0, remainder.length > 0 ? -remainder.length : undefined)
+    }
+  }
+
+  export class SyntaxError extends Error {
+    expected: runtime.Expectation[];
+    found: string | null;
+    location: runtime.LocationRange;
+
+    constructor(
+      expected: runtime.Expectation[],
+      found: string | null,
+      location: runtime.LocationRange,
+    ) {
+      super(SyntaxError.formatMessage(expected, found));
+      this.name = "SyntaxError";
+      this.expected = expected;
+      this.found = found;
+      this.location = location;
+    }
+
+    static formatMessage(expected: runtime.Expectation[], found: string | null): string {
+      function describeExpected(expected: runtime.Expectation[]): string {
+        const descriptions = expected.map(e => e.value);
+        descriptions.sort();
+        if (descriptions.length > 0) {
+          let j = 1;
+          for (let i = 1; i < descriptions.length; i++) {
+            if (descriptions[i - 1] !== descriptions[i]) {
+              descriptions[j] = descriptions[i];
+              j++;
+            }
+          }
+          descriptions.length = j;
+        }
+        switch (descriptions.length) {
+          case 1:
+            return descriptions[0];
+          case 2:
+            return descriptions[0] + " or " + descriptions[1];
+          default:
+            return descriptions.slice(0, -1).join(", ") +
+              ", or " +
+              descriptions[descriptions.length - 1];
+        }
+      }
+
+      function describeFound(found: string | null): string {
+        return found
+          ? '"' + escape(found) + '"'
+          : "end of input";
+      }
+
+      return "Expected " + describeExpected(expected) + " but " +
+        describeFound(found) + " found.";
+    }
+
+    format = (sources: runtime.SourceText[]) => {
+      var str = "Error: " + this.message;
+
+      if (this.location) {
+        var src = null;
+        var k;
+        for (k = 0; k < sources.length; k++) {
+          if (sources[k].source === this.location.source) {
+            src = sources[k].text.split(/\\r\\n|\\n|\\r/g);
+            break;
+          }
+        }
+        var s = this.location.start;
+        var offset_s = (this.location.source instanceof runtime.GrammarLocation)
+          ? this.location.source.offset(s)
+          : s;
+        var loc = this.location.source + ":" + offset_s.line + ":" + offset_s.column;
+        if (src) {
+          var e = this.location.end;
+          var filler = runtime.padEnd("", offset_s.line.toString().length, ' ');
+          var line = src[s.line - 1];
+          var last = s.line === e.line ? e.column : line.length + 1;
+          var hatLen = (last - s.column) || 1;
+          str += "\\n --> " + loc + "\\n"
+              + filler + " |\\n"
+              + offset_s.line + " | " + line + "\\n"
+              + filler + " | " + runtime.padEnd("", s.column - 1, ' ')
+              + runtime.padEnd("", hatLen, "^");
+        } else {
+          str += "\\n at " + loc;
+        }
+      }
+      return str;
     }
   }
 `;

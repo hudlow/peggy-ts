@@ -113,7 +113,7 @@ function toTypeScript(
     abstract toType(): Type;
 
     static getDirectory() {
-      return this.#directory;
+      return [...this.#directory];
     }
 
     static filter(criteria: (r: Reusable) => boolean): Reusable[] {
@@ -306,6 +306,8 @@ function toTypeScript(
     );
     header: Comment | Empty = new Empty();
     returnType: ResultType | NoType;
+
+    expectations: Expectation[] = [];
 
     readonly source: Source;
 
@@ -1914,7 +1916,7 @@ function toTypeScript(
           if (result.success === true) {
             return result;
           } else {
-            expectations.push(...result.expectations)
+            expectations.push(...result.expectations);
           }
         }
 
@@ -2029,7 +2031,7 @@ function toTypeScript(
     }
 
     toCode(): string {
-      const expectation = Expectation.from("other", `not matching ${JSON.stringify(this.func.name)}`)
+      const expectation = Expectation.from("other", `not matching ${JSON.stringify(this.func.name)}`);
 
       return `
         (() => {
@@ -2081,10 +2083,12 @@ function toTypeScript(
   class Capture implements ReturnNode, ResultNode {
     regexp: string;
     value: Node;
+    expectation: Expectation;
 
     constructor(origin: Origin, value: Node) {
       this.regexp = `/^${Capture.toRegExpString(origin)}/g`;
       this.value = value;
+      this.expectation = Expectation.from("other", `matching ${this.regexp}`);
     }
 
     toType() {
@@ -2100,7 +2104,6 @@ function toTypeScript(
 
     // @todo detect cycles and bail out
     toReturnCode() {
-      const expectation = Expectation.from("other", `matching ${this.regexp}`);
       return `
         const matches = ${this.value.toCode()}.match(${this.regexp});
 
@@ -2113,7 +2116,7 @@ function toTypeScript(
         } else {
           return {
             success: false,
-            expectations: [${expectation.toCode()}],
+            expectations: [${this.expectation.toCode()}],
             remainder: ${this.value.toCode()}
           }
         }
@@ -2141,7 +2144,7 @@ function toTypeScript(
         case "sequence":
           return `${origin.elements.map(Capture.toRegExpString).join('')}`;
         case "literal":
-          return RegExpLiteral.escape(origin.value);
+          return RegExpLiteral.escapeLiteral(origin.value);
         case "optional":
           return `(${Capture.toRegExpString(origin.expression)})?`;
         case "simple_not":
@@ -2568,22 +2571,42 @@ function toTypeScript(
             if (Array.isArray(part)) {
               if (part.length === 2) {
                 return (
-                  RegExpLiteral.escape(part[0] as string) +
+                  RegExpLiteral.escapeClassCharacter(part[0] as string) +
                   "-" +
-                  RegExpLiteral.escape(part[1] as string)
+                  RegExpLiteral.escapeClassCharacter(part[1] as string)
                 );
               } else {
                 throw new Error("invalid character class");
               }
             } else {
-              return RegExpLiteral.escape(part);
+              return RegExpLiteral.escapeClassCharacter(part);
             }
           },
         ).join("") +
         "]/" + (cls.ignoreCase ? "i" : "");
     }
 
-    static escape(s: string) {
+    static escapeClassCharacter(s: string) {
+      return s
+        .replace(/\\/g, "\\\\")
+        .replace(/\//g, "\\/")
+        .replace(/]/g, "\\]")
+        .replace(/\^/g, "\\^")
+        .replace(/-/g, "\\-")
+        .replace(/\0/g, "\\0")
+        .replace(/\x08/g, "\\b")
+        .replace(/\t/g, "\\t")
+        .replace(/\n/g, "\\n")
+        .replace(/\v/g, "\\v")
+        .replace(/\f/g, "\\f")
+        .replace(/\r/g, "\\r")
+        .replace(/[\x00-\x0F]/g, (ch) => "\\x0" + hex(ch))
+        .replace(/[\x10-\x1F\x7F-\xFF]/g, (ch) => "\\x" + hex(ch))
+        .replace(/[\u0100-\u0FFF]/g, (ch) => "\\u0" + hex(ch))
+        .replace(/[\u1000-\uFFFF]/g, (ch) => "\\u" + hex(ch));
+    }
+
+    static escapeLiteral(s: string) {
       return s
         .replace(/\\/g, "\\\\")
         .replace(/\//g, "\\/")
@@ -2920,6 +2943,9 @@ function toTypeScript(
     ${getHeaderCode()}
 
     ${reusables.filter(r => r instanceof Expectation).map((r) => r.toDefinition()).join("\n")}
+    ${reusables.filter(r => r instanceof Interface).map((r) => r.toDefinition()).join("\n")}
+
+    // [${reusables.map(r => r.name).join()}]
 
     export function parse(input: string, options: runtime.ParseOptions = new runtime.ParseOptions()): ${parser.returnType.unwrap().toCode()} {
       const parse$lines = input.split(/\\r\\n|\\r|\\n/);
@@ -2933,10 +2959,18 @@ function toTypeScript(
       if (result.success === true) {
         return result.value;
       } else {
-        throw new Error("expected:\\n* " + result.expectations.map(e => e.value).join("\\n* ") + "\\n\\nremainder:\\n" + result.remainder);
+        throw new SyntaxError(
+          result.expectations,
+          result.remainder.slice(0, 1),
+          runtime.getLocation(
+            parse$source,
+            input,
+            result.remainder,
+            result.remainder
+          )
+        );
       }
 
-      ${reusables.filter(r => r instanceof Interface).map((r) => r.toDefinition()).join("\n")}
       ${reusables.filter(r => r instanceof Code).map((r) => r.toDefinition()).join("\n")}
       ${reusables.filter(r => r instanceof Function).map((r) => r.toDefinition()).join("\n")}
     }
@@ -2960,7 +2994,7 @@ function toTypeScript(
   );
 }
 
-function getCompilerOptions() {
+export function getCompilerOptions() {
   // const configFileName = ts.findConfigFile(
   //   "./",
   //   ts.sys.fileExists,
