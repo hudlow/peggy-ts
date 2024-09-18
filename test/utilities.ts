@@ -13,46 +13,20 @@
 // limitations under the License.
 
 import * as vm from "node:vm";
-import * as Peggy from "peggy";
+import Peggy from "peggy";
 import * as Morph from "ts-morph";
 import * as plugin from "../index.ts";
 
 export function generate(grammarSource: string, control: boolean = false): Peggy.Parser {
-  const source = Peggy.generate(
+  return Peggy.generate(
     grammarSource,
     {
-      format: "es",
-      output: "source",
+      format: "bare",
+      output: "parser",
       plugins: control ? [] : [plugin],
       grammarSource,
-    },
-  );
-
-  const project = new Morph.Project({
-    compilerOptions: plugin.getCompilerOptions()
-  });
-
-  const file = project.createSourceFile(
-    "__parser__.ts",
-    source,
-  );
-
-  const emitOutput = file.getEmitOutput();
-  let compiledCode: string = "";
-
-  for (const outputFile of emitOutput.getOutputFiles()) {
-    if (outputFile.getFilePath().endsWith(`__parser__.js`)) {
-      compiledCode = outputFile.getText();
-    } else {
-      throw new Error(`unexpected file: ${outputFile.getFilePath()}`);
     }
-  }
-
-  const context = { exports: {} };
-
-  vm.runInNewContext(compiledCode, context);
-
-  return (context.exports as unknown as Peggy.Parser);
+  );
 }
 
 export function run(

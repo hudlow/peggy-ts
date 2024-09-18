@@ -19,16 +19,13 @@ import * as Morph from "ts-morph";
 import ts from "typescript";
 import { SourceNode } from "source-map-generator";
 
-import runtime from "./runtime.ts";
-import inferReturnType from "./infer-return-type.ts";
+import runtime from "./library/runtime.ts";
+import inferReturnType from "./library/infer-return-type.ts";
+import compile from "./library/compile.ts";
 
 export function use(config: Peggy.Config, options: Peggy.ParserBuildOptions) {
   config.passes.generate = [(...args) => {
-    try {
-      return toTypeScript(...args)
-    } catch (e) {
-      throw e;
-    }
+    return toTypeScript(...args);
   }];
 }
 
@@ -39,7 +36,7 @@ function toTypeScript(
 ) {
   let rawSource: string | undefined;
 
-  if (grammar.location.source.length === grammar.location.end.offset) {
+  if (grammar.location.source?.length === grammar.location.end.offset) {
     // probably the actual source for the grammar
     rawSource = grammar.location.source;
   } else if (typeof grammar.location.source === "string" && grammar.location.source.indexOf(" ") == -1 && grammar.location.source.length <= 1024) {
@@ -2867,7 +2864,7 @@ function toTypeScript(
     remainder: Argument;
     funcs: Function[];
     pickIndex: number;
-    type: ResultType;
+    valueType: Type;
 
     constructor(funcs: Function[], remainder: Argument) {
       const intf = Interface.from(
@@ -2937,11 +2934,7 @@ function toTypeScript(
     initializer = grammar.initializer.code;
   }
 
-  const project = new Morph.Project({
-    compilerOptions: getCompilerOptions()
-  });
-
-  const code = `
+  let code = `
     ${runtime}
 
     ${getHeaderCode()}
@@ -2978,15 +2971,7 @@ function toTypeScript(
     }
   `;
 
-  const file = project.createSourceFile(
-    "__parser__.ts",
-    code.replace(/\s*\n\s*/g, "\n"),
-  );
-
-  file.formatText({ indentSize: 2 });
-  project.resolveSourceFileDependencies();
-
-  const formattedCode = file.getText();
+  const formattedCode = compile(code, options);
 
   grammar.code = new SourceNode(
     null,
@@ -2996,25 +2981,3 @@ function toTypeScript(
   );
 }
 
-export function getCompilerOptions() {
-  // const configFileName = ts.findConfigFile(
-  //   "./",
-  //   ts.sys.fileExists,
-  //   "tsconfig.json"
-  // );
-  // const configFile = ts.readConfigFile(configFileName, ts.sys.readFile);
-  const config = ts.parseJsonConfigFileContent(
-    {
-      compilerOptions: {
-        esModuleInterop: true,
-        target: "es2022",
-        module: "node16",
-        moduleResolution: "node16"
-      }
-    },
-    ts.sys,
-    "./"
-  );
-
-  return config.options;
-}

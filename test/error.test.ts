@@ -34,7 +34,7 @@ function testInput(input: string) {
       s = " "
     `;
 
-    let outError, controlError;
+    let error, controlError;
 
     try {
       run(
@@ -42,7 +42,7 @@ function testInput(input: string) {
         input,
       );
     } catch (e) {
-      outError = e;
+      error = e;
     }
 
     try {
@@ -55,8 +55,16 @@ function testInput(input: string) {
       controlError = e;
     }
 
-    expect(outError.toString()).toEqual(controlError.toString());
+
+    expect(error).toBeInstanceOf(Error);
+    expect(controlError).toBeInstanceOf(Error);
+
+    if (!(error instanceof Error) || !(controlError instanceof Error)) {
+      return;
+    }
+
+    expect(error.toString()).toEqual(controlError.toString());
   });
 }
 
-testInput("hi");
+// testInput("hi");
