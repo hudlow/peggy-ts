@@ -2321,8 +2321,7 @@ function toTypeScript(
         sequence.location,
       );
 
-      const elements = sequence.elements.map((e) => Function.from(e));
-      const reduction = new Reduction(elements, this.args[0]);
+      const reduction = new Reduction(sequence.elements, this.args[0]);
 
       this.setBody(
         new Return(reduction),
@@ -2800,21 +2799,22 @@ function toTypeScript(
   class Reduction implements ResultNode {
     interface: Interface;
     remainder: Argument;
-    funcs: Function[];
+    //funcs: (Function | RegExpLiteral)[];
+    functions: Function;
     pickIndex: number;
     valueType: Type;
 
-    constructor(funcs: Function[], remainder: Argument) {
-      const intf = Interface.from(
-        funcs.map(
+    constructor(elements: Origin[], remainder: Argument) {
+      this.functions = elements.map((e) => Function.from(e));
+
+      this.interface = Interface.from(
+        this.functions.map(
           (f) => Property.from(f.returnType.unwrap(), f.toLabel()),
         ),
       );
 
-      this.interface = intf;
-      this.funcs = funcs;
       this.remainder = remainder;
-      this.pickIndex = this.funcs.findIndex((f) => f instanceof Pick);
+      this.pickIndex = this.functions.findIndex((f) => f instanceof Pick);
 
       this.valueType = this.pickIndex !== -1 ? (this.interface.properties[this.pickIndex] as Property).type : this.interface;
     }
@@ -2822,7 +2822,7 @@ function toTypeScript(
     toReturnCode() {
       return `
         let remainder = ${this.remainder.toCode()};
-        ${this.funcs.map((f, i) => `
+        ${this.functions.map((f, i) => `
           const result${i} = ${f.toCode()}(remainder);
 
           if (result${i}.success === false) {
@@ -2841,7 +2841,7 @@ function toTypeScript(
           :
           `return {
             success: true,
-            value: [${this.funcs.map((f, i) => `result${i}.value`).join()}],
+            value: [${this.functions.map((f, i) => `result${i}.value`).join()}],
             remainder
           }`
         }`;
