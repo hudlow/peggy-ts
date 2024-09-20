@@ -2039,12 +2039,12 @@ function toTypeScript(
   }
 
   class Capture implements ReturnNode, ResultNode {
-    regexp: string;
+    regexp: RegExpLiteral;
     value: Node;
     expectation: Expectation;
 
     constructor(origin: Origin, value: Node) {
-      this.regexp = `/^${Capture.toRegExpString(origin)}/g`;
+      this.regexp = new RegExpLiteral(origin);
       this.value = value;
       this.expectation = Expectation.from("other", `matching ${this.regexp}`);
     }
@@ -2062,7 +2062,7 @@ function toTypeScript(
 
     toReturnCode() {
       return `
-        const matches = ${this.value.toCode()}.match(${this.regexp});
+        const matches = ${this.value.toCode()}.match(${this.regexp.toCode()});
 
         if (matches?.length === 1) {
           return {
@@ -2078,72 +2078,6 @@ function toTypeScript(
           }
         }
       `;
-    }
-
-    static toRegExpString(origin: Origin, parents: Origin[] = []): string {
-      if (parents.indexOf(origin) !== -1) {
-        throw new Error("Cannot represent recursion in a regular expression.");
-      }
-
-      switch (origin.type) {
-        case "rule":
-        case "labeled":
-        case "named":
-        case "text":
-        case "group":
-          return Capture.toRegExpString(origin.expression, [...parents, origin]);
-        case "rule_ref":
-          const foundOrigin = grammar.rules.find((r) => r.name === origin.name);
-
-          if (foundOrigin !== undefined) {
-            return Capture.toRegExpString(foundOrigin, [...parents, origin]);
-          } else {
-            throw new Error(`bad rule reference: ${origin.name}`);
-          }
-        case "choice":
-          return `(${origin.alternatives.map(a => Capture.toRegExpString(a, [...parents, origin])).join('|')})`;
-        case "sequence":
-          return `${origin.elements.map(e => Capture.toRegExpString(e, [...parents, origin])).join('')}`;
-        case "literal":
-          return RegExpLiteral.escapeLiteral(origin.value);
-        case "optional":
-          return `(${Capture.toRegExpString(origin.expression, [...parents, origin])})?`;
-        case "simple_not":
-          return `(?!${Capture.toRegExpString(origin.expression, [...parents, origin])})`;
-        case "zero_or_more":
-          return `(${Capture.toRegExpString(origin.expression, [...parents, origin])})*`;
-        case "one_or_more":
-          return `(${Capture.toRegExpString(origin.expression, [...parents, origin])})+`;
-        case "repeated":
-          if (origin.delimiter !== null) {
-            if (typeof origin.max?.value === "number" && origin.max?.value < 2) {
-              throw new Error("delimiter cannot exist if max count is less than two");
-            }
-
-            const outerOptional = (typeof origin.max?.value !== "number" || origin.min?.value == 0);
-            const innerMin = (typeof origin.min?.value === "number" && origin.min.value > 0) ? origin.min.value - 1 : 0;
-            const innerMax = (typeof origin.max?.value === "number" && origin.max.value > 0) ? origin.max.value - 1 : '';
-            return `(${Capture.toRegExpString(origin.expression, [...parents, origin])}(${Capture.toRegExpString(origin.delimiter, [...parents, origin]) + Capture.toRegExpString(origin.expression, [...parents, origin])}){${innerMin},${innerMax}})${outerOptional ? "?" : ""}`;
-          } else {
-            const innerMin = (typeof origin.min?.value === "number" && origin.min.value > 0) ? origin.min.value : 0;
-            const innerMax = (typeof origin.max?.value === "number" && origin.max.value > 0) ? origin.max.value : '';
-
-            return `(${Capture.toRegExpString(origin.expression, [...parents, origin])}){${innerMin},${innerMax}}`
-          }
-        case "any":
-          return ".";
-        case "class":
-          const expression = new RegExpLiteral(origin).toCode();
-
-          if (expression[expression.length - 1] === "i") {
-            throw new Error("cannot ignore case in nested class");
-          } else {
-            return expression.slice(2, -1);
-          }
-        case "action":
-        default:
-          throw new Error(`Cannot represent ${origin.type} in a regular expression.`)
-      }
     }
   }
 
@@ -2483,27 +2417,92 @@ function toTypeScript(
   class RegExpLiteral implements Node {
     regexp: string;
 
-    constructor(cls: Peggy.ast.CharacterClass) {
-      this.regexp = "/^[" +
-        (cls.inverted ? "^" : "") +
-        cls.parts.map(
-          (part) => {
-            if (Array.isArray(part)) {
-              if (part.length === 2) {
-                return (
-                  RegExpLiteral.escapeClassCharacter(part[0] as string) +
-                  "-" +
-                  RegExpLiteral.escapeClassCharacter(part[1] as string)
-                );
-              } else {
-                throw new Error("invalid character class");
-              }
-            } else {
-              return RegExpLiteral.escapeClassCharacter(part);
+    constructor(origin: Origin) {
+      const ignoreCaseFlag = origin.type === "class" && origin.ignoreCase ? "i" : "";
+      this.regexp = `/^${RegExpLiteral.toRegExpString(origin)}/g${ignoreCaseFlag}`;
+    }
+
+    private static toRegExpString(origin: Origin, parents: Origin[] = []): string {
+      if (parents.indexOf(origin) !== -1) {
+        throw new Error("Cannot represent recursion in a regular expression.");
+      }
+
+      switch (origin.type) {
+        case "rule":
+        case "labeled":
+        case "named":
+        case "text":
+        case "group":
+          return RegExpLiteral.toRegExpString(origin.expression, [...parents, origin]);
+        case "rule_ref":
+          const foundOrigin = grammar.rules.find((r) => r.name === origin.name);
+
+          if (foundOrigin !== undefined) {
+            return RegExpLiteral.toRegExpString(foundOrigin, [...parents, origin]);
+          } else {
+            throw new Error(`bad rule reference: ${origin.name}`);
+          }
+        case "choice":
+          return `(${origin.alternatives.map(a => RegExpLiteral.toRegExpString(a, [...parents, origin])).join('|')})`;
+        case "sequence":
+          return `${origin.elements.map(e => RegExpLiteral.toRegExpString(e, [...parents, origin])).join('')}`;
+        case "literal":
+          return RegExpLiteral.escapeLiteral(origin.value);
+        case "optional":
+          return `(${RegExpLiteral.toRegExpString(origin.expression, [...parents, origin])})?`;
+        case "simple_not":
+          return `(?!${RegExpLiteral.toRegExpString(origin.expression, [...parents, origin])})`;
+        case "zero_or_more":
+          return `(${RegExpLiteral.toRegExpString(origin.expression, [...parents, origin])})*`;
+        case "one_or_more":
+          return `(${RegExpLiteral.toRegExpString(origin.expression, [...parents, origin])})+`;
+        case "repeated":
+          if (origin.delimiter !== null) {
+            if (typeof origin.max?.value === "number" && origin.max?.value < 2) {
+              throw new Error("delimiter cannot exist if max count is less than two");
             }
-          },
-        ).join("") +
-        "]/" + (cls.ignoreCase ? "i" : "");
+
+            const outerOptional = (typeof origin.max?.value !== "number" || origin.min?.value == 0);
+            const innerMin = (typeof origin.min?.value === "number" && origin.min.value > 0) ? origin.min.value - 1 : 0;
+            const innerMax = (typeof origin.max?.value === "number" && origin.max.value > 0) ? origin.max.value - 1 : '';
+            return `(${RegExpLiteral.toRegExpString(origin.expression, [...parents, origin])}(${RegExpLiteral.toRegExpString(origin.delimiter, [...parents, origin]) + RegExpLiteral.toRegExpString(origin.expression, [...parents, origin])}){${innerMin},${innerMax}})${outerOptional ? "?" : ""}`;
+          } else {
+            const innerMin = (typeof origin.min?.value === "number" && origin.min.value > 0) ? origin.min.value : 0;
+            const innerMax = (typeof origin.max?.value === "number" && origin.max.value > 0) ? origin.max.value : '';
+
+            return `(${RegExpLiteral.toRegExpString(origin.expression, [...parents, origin])}){${innerMin},${innerMax}}`
+          }
+        case "any":
+          return ".";
+        case "class":
+          if (origin.ignoreCase && parents.length > 0) {
+            throw new Error("cannot handle nested ignore case");
+          }
+
+          return `[${
+            (origin.inverted ? "^" : "") +
+            origin.parts.map(
+              (part) => {
+                if (Array.isArray(part)) {
+                  if (part.length === 2) {
+                    return (
+                      RegExpLiteral.escapeClassCharacter(part[0] as string) +
+                      "-" +
+                      RegExpLiteral.escapeClassCharacter(part[1] as string)
+                    );
+                  } else {
+                    throw new Error("invalid character class");
+                  }
+                } else {
+                  return RegExpLiteral.escapeClassCharacter(part);
+                }
+              },
+            ).join("")
+          }]`;
+        case "action":
+        default:
+          throw new Error(`Cannot represent ${origin.type} in a regular expression.`);
+      }
     }
 
     static escapeClassCharacter(s: string) {
