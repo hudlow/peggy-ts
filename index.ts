@@ -2081,7 +2081,7 @@ function toTypeScript(
     }
   }
 
-  class Extract implements ResultNode {
+  class Extract implements ResultNode, ReturnNode {
     func: Function;
     remainder: Node;
 
@@ -2102,18 +2102,24 @@ function toTypeScript(
     toCode(): string {
       return `
         (() => {
-          const result = ${this.func.toCode()}(${this.remainder.toCode()});
-
-          if (result.success === true) {
-            return {
-              success: true,
-              value: ${this.remainder.toCode()}.slice(0, ${this.remainder.toCode()}.length - result.remainder.length),
-              remainder: result.remainder
-            }
-          } else {
-            return result;
-          }
+          ${this.toReturnCode()}
         })()
+      `;
+    }
+
+    toReturnCode(): string {
+      return `
+        const result = ${this.func.toCode()}(${this.remainder.toCode()});
+
+        if (result.success === true) {
+          return {
+            success: true,
+            value: ${this.remainder.toCode()}.slice(0, ${this.remainder.toCode()}.length - result.remainder.length),
+            remainder: result.remainder
+          }
+        } else {
+          return result;
+        }
       `;
     }
   }
