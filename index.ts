@@ -849,31 +849,6 @@ function toTypeScript(
     }
   }
 
-//   class SuccessTupleType extends SuccessType {
-//     static readonly type: Type = SimpleType.from("runtime.SuccessTuple");
-//     static #directory: SuccessTupleType[] = [];
-//
-//     private constructor(subtype: Interface) {
-//       super(subtype);
-//
-//       SuccessTupleType.#directory.push(this);
-//     }
-//
-//     static from(subtype: Interface): SuccessTupleType {
-//       const found = SuccessTupleType.#directory.find((g) => g.subtype === subtype);
-//
-//       if (found !== undefined) {
-//         return found;
-//       } else {
-//         return new SuccessTupleType(subtype);
-//       }
-//     }
-//
-//     toCode(): string {
-//       return `${SuccessTupleType.type.toCode()}<${this.subtype.toCode()}>`;
-//     }
-//   }
-
   class ArrayType implements Type {
     readonly type: Type;
 
@@ -2400,27 +2375,6 @@ function toTypeScript(
     }
   }
 
-  class Picker implements Node {
-    proxy: ResultProxy<Reduction>;
-    index: number;
-    type: Type;
-
-    constructor(proxy: ResultProxy<Reduction>, func: Function) {
-      this.proxy = proxy;
-      this.index = proxy.node.funcs.indexOf(func);
-      this.type =
-        (proxy.node.interface.properties[this.index] as Property).type;
-    }
-
-    toCode(): string {
-      return `${this.proxy.toCode()}.value[${this.index}]`;
-    }
-
-    toType(): Type {
-      return this.type;
-    }
-  }
-
   class Sequence extends Function {
     constructor(sequence: Peggy.ast.Sequence) {
       super(
@@ -2433,27 +2387,6 @@ function toTypeScript(
       this.setBody(
         new Return(reduction),
       );
-
-//       const pick = reduction.funcs.find((f) => f instanceof Pick);
-//
-//       if (pick === undefined) {
-//         this.setBody(
-//           new Return(reduction),
-//         );
-//       } else {
-//         this.setBody(
-//           new Return(
-//             new Attempt(
-//               reduction,
-//               (r: ResultProxy<Reduction>) =>
-//                 new Success(
-//                   new Picker(r, pick),
-//                   new Access(r, StringLiteral.from("remainder")),
-//                 ),
-//             ),
-//           ),
-//         );
-//       }
     }
   }
 
