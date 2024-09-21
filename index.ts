@@ -503,7 +503,7 @@ function toTypeScript(
 
           remainder = result.remainder;
           values.push(result.value);
-        } while (${this.max !== undefined ? `&& values.length <= ${this.max}` : `true`});
+        } while (${this.max !== undefined ? `values.length <= ${this.max}` : `true`});
 
         ${this.min ?
           `if (values.length < ${this.min} && result.success === false /* technically redundant */) {
@@ -2020,6 +2020,7 @@ function toTypeScript(
       );
 
       try {
+        throw new Error();
         this.setBody(
           new Return(
             new Capture(text.expression, this.args[0])
@@ -2791,6 +2792,7 @@ function toTypeScript(
           (insideAction && element.type !== "labeled")
         ) {
           try {
+            throw new Error();
             this.elements.push(new RegExpLiteral(element));
           } catch (e) {
             this.elements.push(Function.from(element));
