@@ -230,7 +230,7 @@ export class SyntaxError extends Error {
 
     function describeFound(found: string | null): string {
       return found
-        ? '"' + escape(found) + '"'
+        ? JSON.stringify(found)
         : "end of input";
     }
 

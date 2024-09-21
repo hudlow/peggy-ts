@@ -208,7 +208,7 @@ function toTypeScript(
         () => (input.length - ${this.input.toCode()}.length),
         (
           message: string,
-          location: runtime.LocationRange = runtime.getLocation(parse$source, input, ${this.input.toCode()}, ${this.remainder.toCode()})
+          location = runtime.getLocation(parse$source, input, ${this.input.toCode()}, ${this.remainder.toCode()})
         ) => {
           throw new Error("Error at " + location.source + ":" + location.start.line + ":" + location.start.column + ": " + message)
         },
@@ -2041,12 +2041,10 @@ function toTypeScript(
   class Capture implements ReturnNode, ResultNode {
     regexp: RegExpLiteral;
     value: Node;
-    expectation: Expectation;
 
     constructor(origin: Origin, value: Node) {
       this.regexp = new RegExpLiteral(origin);
       this.value = value;
-      this.expectation = Expectation.from("other", `matching ${this.regexp}`);
     }
 
     toType() {
@@ -2073,7 +2071,7 @@ function toTypeScript(
         } else {
           return {
             success: false,
-            expectations: [${this.expectation.toCode()}],
+            expectations: ${this.regexp.getExpectations().toCode()},
             remainder: ${this.value.toCode()}
           }
         }
@@ -2421,10 +2419,16 @@ function toTypeScript(
 
   class RegExpLiteral implements Node {
     regexp: string;
+    expectations: ArrayLiteral<Expectation>;
 
     constructor(origin: Origin) {
       const ignoreCaseFlag = origin.type === "class" && origin.ignoreCase ? "i" : "";
       this.regexp = `/^${RegExpLiteral.toRegExpString(origin)}/g${ignoreCaseFlag}`;
+      this.expectations = new ArrayLiteral([Expectation.from("other", `matching ${this.regexp}`)]);
+    }
+
+    getExpectations() {
+      return this.expectations;
     }
 
     private static toRegExpString(origin: Origin, parents: Origin[] = []): string {
@@ -2532,34 +2536,7 @@ function toTypeScript(
 
     static escapeLiteral(s: string) {
       return s
-        .replace(/\\/g, "\\\\")
-        .replace(/\//g, "\\/")
-        .replace(/]/g, "\\]")
-        .replace(/\^/g, "\\^")
-        .replace(/-/g, "\\-")
-        .replace(/\0/g, "\\0")
-        .replace(/\x08/g, "\\b")
-        .replace(/\t/g, "\\t")
-        .replace(/\n/g, "\\n")
-        .replace(/\v/g, "\\v")
-        .replace(/\f/g, "\\f")
-        .replace(/\r/g, "\\r")
-        .replace(/\./g, "\\.")
-        .replace(/\(/g, "\\(")
-        .replace(/\)/g, "\\)")
-        .replace(/\{/g, "\\{")
-        .replace(/\}/g, "\\}")
-        .replace(/\[/g, "\\[")
-        .replace(/\]/g, "\\]")
-        .replace(/\*/g, "\\*")
-        .replace(/\+/g, "\\+")
-        .replace(/\|/g, "\\|")
-        .replace(/\^/g, "\\^")
-        .replace(/\$/g, "\\$")
-        .replace(/\?/g, "\\?")
-        .replace(/\!/g, "\\!")
-        .replace(/\</g, "\\<")
-        .replace(/\>/g, "\\>")
+        .replace(/[.*+?^${}()|[\]\\\//\0\x08\t\n\v\f\r]/g, "\\$&")
         .replace(/[\x00-\x0F]/g, (ch) => "\\x0" + hex(ch))
         .replace(/[\x10-\x1F\x7F-\xFF]/g, (ch) => "\\x" + hex(ch))
         .replace(/[\u0100-\u0FFF]/g, (ch) => "\\u0" + hex(ch))
@@ -2799,13 +2776,31 @@ function toTypeScript(
   class Reduction implements ResultNode {
     interface: Interface;
     remainder: Argument;
-    //funcs: (Function | RegExpLiteral)[];
-    functions: Function;
+    elements: (Function | RegExpLiteral)[] = [];
+    functions: Function[] = [];
     pickIndex: number;
     valueType: Type;
 
-    constructor(elements: Origin[], remainder: Argument) {
-      this.functions = elements.map((e) => Function.from(e));
+    constructor(elements: Origin[], remainder: Argument, insideAction: boolean = false) {
+      this.pickIndex = elements.findIndex(e => (e.type === "labeled" && e.label === null));
+
+      for (let i = 0; i < elements.length; ++i) {
+        const element = elements[i];
+        if (
+          (this.pickIndex !== -1 && !(element.type === "labeled" && element.label === null)) ||
+          (insideAction && element.type !== "labeled")
+        ) {
+          try {
+            this.elements.push(new RegExpLiteral(element));
+          } catch (e) {
+            this.elements.push(Function.from(element));
+          }
+        } else {
+          const func = Function.from(element);
+          this.elements.push(func);
+          this.functions.push(func);
+        }
+      }
 
       this.interface = Interface.from(
         this.functions.map(
@@ -2814,23 +2809,42 @@ function toTypeScript(
       );
 
       this.remainder = remainder;
-      this.pickIndex = this.functions.findIndex((f) => f instanceof Pick);
 
-      this.valueType = this.pickIndex !== -1 ? (this.interface.properties[this.pickIndex] as Property).type : this.interface;
+      this.valueType = this.pickIndex !== -1 ? ReturnType.from(this.elements[this.pickIndex] as Pick).unwrap() : this.interface;
     }
 
     toReturnCode() {
       return `
         let remainder = ${this.remainder.toCode()};
-        ${this.functions.map((f, i) => `
-          const result${i} = ${f.toCode()}(remainder);
+        ${this.elements.map((e, i) =>
+          {
+            if (e instanceof Function) {
+              return `
+                const result${i} = ${e.toCode()}(remainder);
 
-          if (result${i}.success === false) {
-            return result${i};
-          } else {
-            remainder = result${i}.remainder;
+                if (result${i}.success === false) {
+                  return result${i};
+                } else {
+                  remainder = result${i}.remainder;
+                }
+              `;
+            } else {
+              return `
+                const result${i} = remainder.match(${e.toCode()});
+
+                if (result${i}?.length !== 1) {
+                  return {
+                    success: false,
+                    expectations: ${e.getExpectations().toCode()},
+                    remainder
+                  }
+                } else {
+                  remainder = remainder.slice(result${i}[0].length);
+                }
+              `;
+            }
           }
-        `).join("\n")}
+        ).join("\n")}
 
         ${this.pickIndex !== -1 ? `
           return {
@@ -2841,7 +2855,7 @@ function toTypeScript(
           :
           `return {
             success: true,
-            value: [${this.functions.map((f, i) => `result${i}.value`).join()}],
+            value: [${this.functions.map((f) => `result${this.elements.indexOf(f)}.value`).join()}],
             remainder
           }`
         }`;
