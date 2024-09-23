@@ -1,0 +1,49 @@
+{
+  "name": "peggy-ts",
+  "version": "0.0.1",
+  "description": "TypeScript plugin for Peggy parser generator",
+  "author": "Dan Hudlow",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/hudlow/cel-parser/issues"
+  },
+  "homepage": "https://github.com/hudlow/cel-parser#readme",
+  "main": "dist/index.cjs",
+  "directories": {
+    "test": "test"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepare": "./bin/prepare-runtime.ts && npm run bundle",
+    "bundle": "mkdir dist &> /dev/null; esbuild index.ts --bundle --platform=node --format=cjs --external:peggy --external:ts-morph --external:source-map-generator > ./dist/index.cjs",
+    "clean": "rm -rf dist/ node_modules/ jest.config.js library/runtime.ts",
+    "check": "tsc --noEmit -p ./tsconfig.json --strict",
+    "test": "ts-jest config:init &> /dev/null; jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hudlow/cel-parser.git"
+  },
+  "keywords": [
+    "peggy",
+    "parser",
+    "typescript",
+    "peg",
+    "pegjs",
+    "peggyjs",
+    "grammar"
+  ],
+  "dependencies": {
+    "source-map-generator": "^0.8.0",
+    "ts-morph": "^23.0.0"
+  },
+  "peerDependencies": {
+    "peggy": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.13",
+    "ts-jest": "^29.2.5"
+  }
+}

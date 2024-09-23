@@ -16,7 +16,6 @@ import fs from "node:fs";
 
 import * as Peggy from "peggy";
 import * as Morph from "ts-morph";
-import ts from "typescript";
 import { SourceNode } from "source-map-generator";
 
 import runtime from "./library/runtime.ts";
@@ -2020,7 +2019,6 @@ function toTypeScript(
       );
 
       try {
-        throw new Error();
         this.setBody(
           new Return(
             new Capture(text.expression, this.args[0])
@@ -2792,7 +2790,6 @@ function toTypeScript(
           (insideAction && element.type !== "labeled")
         ) {
           try {
-            throw new Error();
             this.elements.push(new RegExpLiteral(element));
           } catch (e) {
             this.elements.push(Function.from(element));
