@@ -22,7 +22,8 @@
     "lint": "prettier . --check",
     "format": "prettier . --write",
     "check": "tsc --noEmit -p ./tsconfig.json --strict",
-    "test": "jest"
+    "test": "jest",
+    "verify": "npm run lint; npm run check; npm test"
   },
   "repository": {
     "type": "git",
