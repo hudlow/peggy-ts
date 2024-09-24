@@ -17,22 +17,22 @@ import Peggy from "peggy";
 import * as Morph from "ts-morph";
 import * as plugin from "../index.ts";
 
-export function generate(grammarSource: string, control: boolean = false): Peggy.Parser {
-  return Peggy.generate(
+export function generate(
+  grammarSource: string,
+  control: boolean = false,
+): Peggy.Parser {
+  return Peggy.generate(grammarSource, {
+    format: "bare",
+    output: "parser",
+    plugins: control ? [] : [plugin],
     grammarSource,
-    {
-      format: "bare",
-      output: "parser",
-      plugins: control ? [] : [plugin],
-      grammarSource,
-    }
-  );
+  });
 }
 
 export function run(
   grammarSource: string,
   input: string,
-  control: boolean = false
+  control: boolean = false,
 ): any {
   const parser = generate(grammarSource, control);
 

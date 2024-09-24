@@ -19,6 +19,8 @@
     "prepare": "./bin/prepare-runtime.ts && npm run bundle",
     "bundle": "mkdir dist &> /dev/null; esbuild index.ts --bundle --platform=node --format=cjs --external:peggy --external:ts-morph --external:source-map-generator > ./dist/index.cjs",
     "clean": "rm -rf dist/ node_modules/ jest.config.js library/runtime.ts",
+    "lint": "prettier . --check",
+    "format": "prettier . --write",
     "check": "tsc --noEmit -p ./tsconfig.json --strict",
     "test": "jest"
   },
@@ -44,6 +46,7 @@
   },
   "devDependencies": {
     "@types/jest": "^29.5.13",
+    "prettier": "^3.3.3",
     "ts-jest": "^29.2.5"
   },
   "jest": {

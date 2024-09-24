@@ -23,7 +23,7 @@ function actionGrammar(code: string) {
     c = "hello"
     d = foo:"world" { ${code} }
     s = " "
-  `
+  `;
 }
 
 function testAction(code: string) {
@@ -37,16 +37,9 @@ function testAction(code: string) {
       s = " "
     `;
 
-    const out = await run(
-      grammar,
-      `hello world`,
-    );
+    const out = await run(grammar, `hello world`);
 
-    const control = await run(
-      grammar,
-      `hello world`,
-      true
-    );
+    const control = await run(grammar, `hello world`, true);
 
     // expect(out.success).toBe(true);
     expect(out).toEqual(control);

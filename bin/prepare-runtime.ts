@@ -10,6 +10,6 @@ fs.writeFileSync(
     "// This file is generated from source/runtime.ts",
     "// To regenerate, run `npm run prepare`",
     `const runtime = ${JSON.stringify(runtime)};`,
-    "export default runtime;"
-  ].join("\n")
+    "export default runtime;",
+  ].join("\n"),
 );

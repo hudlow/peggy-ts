@@ -1,24 +1,31 @@
 import Peggy from "peggy";
 import * as Morph from "ts-morph";
 
-export default function compile(code: string, options: Peggy.ParserBuildOptions): string {
+export default function compile(
+  code: string,
+  options: Peggy.ParserBuildOptions,
+): string {
   // refer to https://github.com/microsoft/TypeScript/blob/main/src/server/protocol.ts
   const compilerOptions: Morph.ts.CompilerOptions = {
     target: Morph.ts.ScriptTarget.ES2023,
-    module: Morph.ts.ModuleKind.CommonJS
+    module: Morph.ts.ModuleKind.CommonJS,
   };
 
   if (options.output === "parser") {
     if (!["bare", undefined].includes(options.format)) {
-      throw new Error('only `format = "bare"` is compatible with `output = "parser"`');
+      throw new Error(
+        'only `format = "bare"` is compatible with `output = "parser"`',
+      );
     } else if (options.typescript === true) {
-      throw new Error('`typescript = true` is not compatible with `output = "parser"`');
+      throw new Error(
+        '`typescript = true` is not compatible with `output = "parser"`',
+      );
     }
   }
 
   if (options.format === "es") {
-    compilerOptions.module = Morph.ts.ModuleKind.Node16
-    compilerOptions.moduleResolution = Morph.ts.ModuleResolutionKind.Node16
+    compilerOptions.module = Morph.ts.ModuleKind.Node16;
+    compilerOptions.moduleResolution = Morph.ts.ModuleResolutionKind.Node16;
     compilerOptions.esModuleInterop = true;
   }
 

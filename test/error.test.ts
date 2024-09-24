@@ -37,24 +37,16 @@ function testInput(input: string) {
     let error, controlError;
 
     try {
-      run(
-        grammar,
-        input,
-      );
+      run(grammar, input);
     } catch (e) {
       error = e;
     }
 
     try {
-      run(
-        grammar,
-        input,
-        true
-      );
+      run(grammar, input, true);
     } catch (e) {
       controlError = e;
     }
-
 
     expect(error).toBeInstanceOf(Error);
     expect(controlError).toBeInstanceOf(Error);

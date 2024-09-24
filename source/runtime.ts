@@ -33,9 +33,8 @@ namespace runtime {
     offset(loc: Location): Location {
       return {
         line: loc.line + this.start.line - 1,
-        column: (loc.line === 1)
-          ? loc.column + this.start.column - 1
-          : loc.column,
+        column:
+          loc.line === 1 ? loc.column + this.start.column - 1 : loc.column,
         offset: loc.offset + this.start.offset,
       };
     }
@@ -57,7 +56,9 @@ namespace runtime {
 
   export function padEnd(str: string, targetLength: number, padString: string) {
     padString = padString || " ";
-    if (str.length > targetLength) { return str; }
+    if (str.length > targetLength) {
+      return str;
+    }
     targetLength -= str.length;
     padString += padString.repeat(targetLength);
     return str + padString.slice(0, targetLength);
@@ -91,10 +92,9 @@ namespace runtime {
       .replace(/[\x10-\x1F\x7F-\x9F]/g, function (ch) {
         return "\\x" + hex(ch);
       });
- }
-
-  export class ParseFailure {
   }
+
+  export class ParseFailure {}
 
   export class ParseOptions {
     currentPosition?: number;
@@ -146,7 +146,7 @@ namespace runtime {
     let column = 1;
 
     for (let i = offset; i > 0; i--) {
-      if (["\n", "\r"].includes(input[i-1])) {
+      if (["\n", "\r"].includes(input[i - 1])) {
         break;
       }
 
@@ -156,32 +156,42 @@ namespace runtime {
     return column;
   }
 
-  export function getLocation(source: string | GrammarLocation | undefined, input: string, start: string, remainder: string): runtime.LocationRange {
+  export function getLocation(
+    source: string | GrammarLocation | undefined,
+    input: string,
+    start: string,
+    remainder: string,
+  ): runtime.LocationRange {
     return {
       source,
       start: {
         offset: input.length - start.length,
         line: getLine(input, input.length - start.length),
-        column: getColumn(input, input.length - start.length)
+        column: getColumn(input, input.length - start.length),
       },
       end: {
         offset: input.length - remainder.length,
         line: getLine(input, input.length - remainder.length),
-        column: getColumn(input, input.length - remainder.length)
+        column: getColumn(input, input.length - remainder.length),
       },
-    }
+    };
   }
 
-  export function getRange(source: string | GrammarLocation | undefined, input: string, start: string, remainder: string) {
+  export function getRange(
+    source: string | GrammarLocation | undefined,
+    input: string,
+    start: string,
+    remainder: string,
+  ) {
     return {
       source,
       start: input.length - start.length,
-      end: input.length - remainder.length
-    }
+      end: input.length - remainder.length,
+    };
   }
 
   export function getText(start: string, remainder: string) {
-    return start.slice(0, remainder.length > 0 ? -remainder.length : undefined)
+    return start.slice(0, remainder.length > 0 ? -remainder.length : undefined);
   }
 }
 
@@ -202,9 +212,12 @@ export class SyntaxError extends Error {
     this.location = location;
   }
 
-  static formatMessage(expected: runtime.Expectation[], found: string | null): string {
+  static formatMessage(
+    expected: runtime.Expectation[],
+    found: string | null,
+  ): string {
     function describeExpected(expected: runtime.Expectation[]): string {
-      const descriptions = expected.map(e => e.value);
+      const descriptions = expected.map((e) => e.value);
       descriptions.sort();
       if (descriptions.length > 0) {
         let j = 1;
@@ -222,20 +235,25 @@ export class SyntaxError extends Error {
         case 2:
           return descriptions[0] + " or " + descriptions[1];
         default:
-          return descriptions.slice(0, -1).join(", ") +
+          return (
+            descriptions.slice(0, -1).join(", ") +
             ", or " +
-            descriptions[descriptions.length - 1];
+            descriptions[descriptions.length - 1]
+          );
       }
     }
 
     function describeFound(found: string | null): string {
-      return found
-        ? JSON.stringify(found)
-        : "end of input";
+      return found ? JSON.stringify(found) : "end of input";
     }
 
-    return "Expected " + describeExpected(expected) + " but " +
-      describeFound(found) + " found.";
+    return (
+      "Expected " +
+      describeExpected(expected) +
+      " but " +
+      describeFound(found) +
+      " found."
+    );
   }
 
   format = (sources: runtime.SourceText[]) => {
@@ -251,25 +269,36 @@ export class SyntaxError extends Error {
         }
       }
       var s = this.location.start;
-      var offset_s = (this.location.source instanceof runtime.GrammarLocation)
-        ? this.location.source.offset(s)
-        : s;
-      var loc = this.location.source + ":" + offset_s.line + ":" + offset_s.column;
+      var offset_s =
+        this.location.source instanceof runtime.GrammarLocation
+          ? this.location.source.offset(s)
+          : s;
+      var loc =
+        this.location.source + ":" + offset_s.line + ":" + offset_s.column;
       if (src) {
         var e = this.location.end;
-        var filler = runtime.padEnd("", offset_s.line.toString().length, ' ');
+        var filler = runtime.padEnd("", offset_s.line.toString().length, " ");
         var line = src[s.line - 1];
         var last = s.line === e.line ? e.column : line.length + 1;
-        var hatLen = (last - s.column) || 1;
-        str += "\n --> " + loc + "\n"
-            + filler + " |\n"
-            + offset_s.line + " | " + line + "\n"
-            + filler + " | " + runtime.padEnd("", s.column - 1, ' ')
-            + runtime.padEnd("", hatLen, "^");
+        var hatLen = last - s.column || 1;
+        str +=
+          "\n --> " +
+          loc +
+          "\n" +
+          filler +
+          " |\n" +
+          offset_s.line +
+          " | " +
+          line +
+          "\n" +
+          filler +
+          " | " +
+          runtime.padEnd("", s.column - 1, " ") +
+          runtime.padEnd("", hatLen, "^");
       } else {
         str += "\n at " + loc;
       }
     }
     return str;
-  }
+  };
 }

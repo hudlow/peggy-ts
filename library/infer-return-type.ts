@@ -22,10 +22,7 @@ export default function inferReturnType(
 ): string {
   const project = new Morph.Project();
 
-  const file = project.createSourceFile(
-    "__temp__.ts",
-    header + code,
-  );
+  const file = project.createSourceFile("__temp__.ts", header + code);
 
   project.resolveSourceFileDependencies();
 
