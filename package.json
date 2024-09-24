@@ -8,7 +8,7 @@
     "url": "https://github.com/hudlow/cel-parser/issues"
   },
   "homepage": "https://github.com/hudlow/cel-parser#readme",
-  "main": "dist/index.cjs",
+  "main": "./dist/index.cjs",
   "directories": {
     "test": "test"
   },
