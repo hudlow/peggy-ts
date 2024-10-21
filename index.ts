@@ -37,6 +37,14 @@ function toTypeScript(
 ) {
   let rawSource: string | undefined;
 
+  let initializer = "";
+
+  if (Array.isArray(grammar.initializer)) {
+    initializer = grammar.initializer.map((i) => i.code).join("\n");
+  } else if (grammar.initializer?.code !== undefined) {
+    initializer = grammar.initializer.code;
+  }
+
   if (grammar.location.source?.length === grammar.location.end.offset) {
     // probably the actual source for the grammar
     rawSource = grammar.location.source;
@@ -169,7 +177,7 @@ function toTypeScript(
               .map((r) => r.toDefinition())
               .join("\n"),
             this.name,
-            getHeaderCode(),
+            `${getHeaderCode()}\n${initializer}`,
             options.additionalFiles,
           ),
         );
@@ -2430,7 +2438,7 @@ function toTypeScript(
             }
 
             const outerOptional =
-              typeof origin.max?.value !== "number" || origin.min?.value == 0;
+              typeof origin.min?.value !== "number" || origin.min?.value === 0;
             const innerMin =
               typeof origin.min?.value === "number" && origin.min.value > 0
                 ? origin.min.value - 1
@@ -2846,14 +2854,6 @@ function toTypeScript(
 
   const parser = new Parser(grammar);
   const reusables = Reusable.getDirectory();
-
-  let initializer = "";
-
-  if (Array.isArray(grammar.initializer)) {
-    initializer = grammar.initializer.map((i) => i.code).join("\n");
-  } else if (grammar.initializer?.code !== undefined) {
-    initializer = grammar.initializer.code;
-  }
 
   let code = `
     ${runtime}
