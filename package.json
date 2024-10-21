@@ -1,6 +1,6 @@
 {
   "name": "peggy-ts",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "TypeScript plugin for Peggy parser generator",
   "author": "Dan Hudlow",
   "license": "Apache-2.0",
