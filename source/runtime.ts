@@ -110,13 +110,19 @@ namespace runtime {
 
   export interface Failure {
     success: false;
-    expectations: Expectation[];
     remainder: string;
+    failedExpectations: FailedExpectation[];
   }
 
   export interface Success<T> {
     success: true;
     value: T;
+    remainder: string;
+    failedExpectations: FailedExpectation[];
+  }
+
+  export interface FailedExpectation {
+    expectation: Expectation;
     remainder: string;
   }
 
@@ -195,45 +201,90 @@ namespace runtime {
   }
 }
 
-export class SyntaxError extends Error {
-  expected: runtime.Expectation[];
-  found: string | null;
+export class ParseError extends Error {
+  rawMessage: string;
   location: runtime.LocationRange;
 
   constructor(
-    expected: runtime.Expectation[],
-    found: string | null,
+    message: string,
     location: runtime.LocationRange,
+    name: string = "parse error",
   ) {
-    super(SyntaxError.formatMessage(expected, found));
-    this.name = "SyntaxError";
-    this.expected = expected;
-    this.found = found;
+    super(ParseError.#formatMessage(message, location));
+    this.name = name;
+    this.rawMessage = message;
     this.location = location;
   }
 
-  static formatMessage(
+  static #formatMessage(message: string, location: runtime.LocationRange) {
+    const source =
+      location.source !== undefined ? String(location.source) : "<input>";
+
+    return (
+      `${source}:${location.start.line}:${location.start.column}: ` + message
+    );
+  }
+}
+
+export class SyntaxError extends ParseError {
+  expected: runtime.Expectation[];
+  found: string | null;
+
+  constructor(
     expected: runtime.Expectation[],
-    found: string | null,
+    found: string,
+    location: runtime.LocationRange,
+    name: string = "syntax error",
+  ) {
+    super(SyntaxError.#formatMessage(expected, found), location, name);
+    this.expected = expected;
+    this.found = found;
+  }
+
+  static #formatMessage(
+    expected: runtime.Expectation[],
+    found: string,
   ): string {
+    function encode(s: string): string {
+      const entropyToken = "(fvo47fu3AwHrHsLEMNa7uUXYUF4rQgdm)";
+
+      return (
+        "'" +
+        s
+          .replaceAll("\\", entropyToken)
+          .replaceAll("\x07", "\\a")
+          .replaceAll("\b", "\\b")
+          .replaceAll("\f", "\\f")
+          .replaceAll("\n", "\\n")
+          .replaceAll("\r", "\\r")
+          .replaceAll("\t", "\\t")
+          .replaceAll("\v", "\\v")
+          .replaceAll("'", "\\'")
+          .replaceAll(entropyToken, "\\\\") +
+        "'"
+      );
+    }
+
     function describeExpected(expected: runtime.Expectation[]): string {
-      const descriptions = expected.map((e) => e.value);
+      const descriptions = [
+        ...new Set(
+          expected.map((e) => {
+            if (e.type === "literal") {
+              return encode(e.value);
+            }
+
+            return e.value;
+          }),
+        ),
+      ];
+
       descriptions.sort();
-      if (descriptions.length > 0) {
-        let j = 1;
-        for (let i = 1; i < descriptions.length; i++) {
-          if (descriptions[i - 1] !== descriptions[i]) {
-            descriptions[j] = descriptions[i];
-            j++;
-          }
-        }
-        descriptions.length = j;
-      }
+
       switch (descriptions.length) {
         case 1:
           return descriptions[0];
         case 2:
-          return descriptions[0] + " or " + descriptions[1];
+          return `${descriptions[0]} or ${descriptions[1]}`;
         default:
           return (
             descriptions.slice(0, -1).join(", ") +
@@ -243,62 +294,15 @@ export class SyntaxError extends Error {
       }
     }
 
-    function describeFound(found: string | null): string {
-      return found ? JSON.stringify(found) : "end of input";
+    function describeFound(found: string): string {
+      return found.length === 1 ? found : "end of input";
     }
 
     return (
-      "Expected " +
-      describeExpected(expected) +
-      " but " +
+      "found " +
       describeFound(found) +
-      " found."
+      " but expecting " +
+      describeExpected(expected)
     );
   }
-
-  format = (sources: runtime.SourceText[]) => {
-    var str = "Error: " + this.message;
-
-    if (this.location) {
-      var src = null;
-      var k;
-      for (k = 0; k < sources.length; k++) {
-        if (sources[k].source === this.location.source) {
-          src = sources[k].text.split(/\r\n|\n|\r/g);
-          break;
-        }
-      }
-      var s = this.location.start;
-      var offset_s =
-        this.location.source instanceof runtime.GrammarLocation
-          ? this.location.source.offset(s)
-          : s;
-      var loc =
-        this.location.source + ":" + offset_s.line + ":" + offset_s.column;
-      if (src) {
-        var e = this.location.end;
-        var filler = runtime.padEnd("", offset_s.line.toString().length, " ");
-        var line = src[s.line - 1];
-        var last = s.line === e.line ? e.column : line.length + 1;
-        var hatLen = last - s.column || 1;
-        str +=
-          "\n --> " +
-          loc +
-          "\n" +
-          filler +
-          " |\n" +
-          offset_s.line +
-          " | " +
-          line +
-          "\n" +
-          filler +
-          " | " +
-          runtime.padEnd("", s.column - 1, " ") +
-          runtime.padEnd("", hatLen, "^");
-      } else {
-        str += "\n at " + loc;
-      }
-    }
-    return str;
-  };
 }
