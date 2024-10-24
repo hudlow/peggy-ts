@@ -1,6 +1,6 @@
 {
   "name": "peggy-ts",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "TypeScript plugin for Peggy parser generator",
   "author": "Dan Hudlow",
   "license": "Apache-2.0",
@@ -23,7 +23,7 @@
     "format": "prettier . --write",
     "check": "tsc --noEmit -p ./tsconfig.json --strict",
     "test": "jest",
-    "verify": "npm run lint; npm run check; npm test"
+    "verify": "npm run lint && npm run check && npm test"
   },
   "repository": {
     "type": "git",

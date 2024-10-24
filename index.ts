@@ -225,9 +225,10 @@ function toTypeScript(
         () => (input.length - ${this.input.toCode()}.length),
         (
           message: string,
-          location = runtime.getLocation(parse$source, input, ${this.input.toCode()}, ${this.remainder.toCode()})
+          location = runtime.getLocation(parse$source, input, ${this.input.toCode()}, ${this.remainder.toCode()}),
+          name?: string,
         ) => {
-          throw new Error("Error at " + location.source + ":" + location.start.line + ":" + location.start.column + ": " + message)
+          throw new ParseError(message, location, name)
         },
         ${this.values.map((v) => v.toCode()).join()}
       )`;
@@ -307,19 +308,25 @@ function toTypeScript(
     }
   }
 
-  class Function extends Reusable {
+  abstract class Function extends Reusable {
     args: [Argument] = [new Argument("text", SimpleType.from("string"))];
 
     body: Return = new Return(
       new Failure(
-        [Expectation.from("any", "any character")],
         StringLiteral.from(),
+        new ArrayLiteral([
+          new FailedExpectation(
+            Expectation.from("any", "any character"),
+            StringLiteral.from(),
+          ),
+        ]),
       ),
     );
     header: Comment | Empty = new Empty();
     returnType: ResultType | NoType;
 
     expectations: Expectation[] = [];
+    allowsZeroLength: boolean = true;
 
     readonly source: Source;
 
@@ -422,22 +429,12 @@ function toTypeScript(
       } else if (origin.type === "text") {
         return new Text(origin);
       } else if (origin.type === "named") {
-        return Named.from(origin.expression);
+        return new Named(origin);
       } else if (origin.type === "group") {
         return Function.from(origin.expression);
       }
 
-      const func = new Function(origin.location);
-
       throw new Error(`Unknown node type: ${origin.type}`);
-
-      func.setBody(
-        new Return(
-          new Success(StringLiteral.from("success"), StringLiteral.from()),
-        ),
-      );
-
-      return func;
     }
 
     toType(): Type {
@@ -448,21 +445,21 @@ function toTypeScript(
   class Repetition implements ResultNode {
     func: Function;
     remainder: Argument;
-    min?: number | string;
-    max?: number | string;
+    min: number;
+    max?: number;
     delimiter?: Function;
 
     constructor(
       func: Function,
       remainder: Argument,
-      min?: number | string,
-      max?: number | string,
+      min?: number,
+      max?: number,
       delimiter?: Function,
     ) {
       this.func = func;
       this.remainder = remainder;
-      this.min = min !== null ? min : undefined;
-      this.max = max !== null ? max : undefined;
+      this.min = min !== undefined ? min : 0;
+      this.max = max;
       this.delimiter = delimiter;
     }
 
@@ -482,6 +479,7 @@ function toTypeScript(
     toReturnCode(): string {
       return `
         const values: Array<${this.func.returnType.unwrap().toCode()}> = [];
+        const failedExpectations: runtime.FailedExpectation[] = [];
         let remainder = ${this.remainder.toCode()};
         let result;
 
@@ -503,6 +501,7 @@ function toTypeScript(
           }
 
           result = ${this.func.toCode()}(r);
+          failedExpectations.push(...result.failedExpectations);
           if (result.success === false) {
             break;
           }
@@ -514,11 +513,11 @@ function toTypeScript(
         ${
           this.min
             ? `if (values.length < ${this.min} && result.success === false /* technically redundant */) {
-              return result;
+              return { success: false, remainder: result.remainder, failedExpectations };
             } else {
-              return { success: true, value: values, remainder };
+              return { success: true, value: values, remainder, failedExpectations };
             }`
-            : `return { success: true, value: values, remainder };`
+            : `return { success: true, value: values, remainder, failedExpectations };`
         }`;
     }
   }
@@ -527,11 +526,11 @@ function toTypeScript(
     constructor(suffixed: Peggy.ast.Suffixed) {
       super(suffixed.location);
 
-      this.setBody(
-        new Return(
-          new Repetition(Function.from(suffixed.expression), this.args[0], 1),
-        ),
-      );
+      const func = Function.from(suffixed.expression);
+      this.expectations = [...func.expectations];
+      this.allowsZeroLength = func.allowsZeroLength;
+
+      this.setBody(new Return(new Repetition(func, this.args[0], 1)));
     }
   }
 
@@ -539,11 +538,11 @@ function toTypeScript(
     constructor(suffixed: Peggy.ast.Suffixed) {
       super(suffixed.location);
 
-      this.setBody(
-        new Return(
-          new Repetition(Function.from(suffixed.expression), this.args[0], 0),
-        ),
-      );
+      const func = Function.from(suffixed.expression);
+      this.expectations = [...func.expectations];
+      this.allowsZeroLength = true;
+
+      this.setBody(new Return(new Repetition(func, this.args[0], 0)));
     }
   }
 
@@ -551,13 +550,30 @@ function toTypeScript(
     constructor(repeated: Peggy.ast.Repeated) {
       super(repeated.location);
 
+      const func = Function.from(repeated.expression);
+      const max =
+        repeated.max?.value !== null ? repeated.max?.value : undefined;
+      const min =
+        repeated.min !== null
+          ? repeated.min?.value !== undefined
+            ? repeated.min?.value
+            : 0
+          : max;
+
+      if (typeof min === "string" || typeof max === "string") {
+        throw new Error("unsupported feature");
+      }
+
+      this.expectations = [...func.expectations];
+      this.allowsZeroLength = min === 0 || func.allowsZeroLength;
+
       this.setBody(
         new Return(
           new Repetition(
-            Function.from(repeated.expression),
+            func,
             this.args[0],
-            repeated.min !== null ? repeated.min?.value : repeated.max?.value,
-            repeated.max?.value,
+            min,
+            max,
             repeated.delimiter !== null
               ? Function.from(repeated.delimiter)
               : undefined,
@@ -571,12 +587,21 @@ function toTypeScript(
     constructor(optional: Peggy.ast.Suffixed) {
       super(optional.location);
 
+      const func = Function.from(optional.expression);
+      this.expectations = [...func.expectations];
+      this.allowsZeroLength = true;
+
       this.setBody(
         new Return(
           new Attempt(
-            new Invocation(Function.from(optional.expression), this.args),
+            new Invocation(func, this.args),
             undefined,
-            (f) => new Success(new NullLiteral(), this.args[0]),
+            (f) =>
+              new Success(
+                new NullLiteral(),
+                this.args[0],
+                new Access(f, StringLiteral.from("failedExpectations")),
+              ),
           ),
         ),
       );
@@ -1588,14 +1613,10 @@ function toTypeScript(
   class ArrayLiteral<T extends Node> extends LiteralNode {
     values: T[];
 
-    constructor(values?: T[]) {
+    constructor(values: T[] = []) {
       super();
 
-      if (values !== undefined) {
-        this.values = values;
-      } else {
-        this.values = [];
-      }
+      this.values = values;
     }
 
     toCode(): string {
@@ -1657,6 +1678,27 @@ function toTypeScript(
     }
   }
 
+  class FailedExpectation implements Node {
+    expectation: Node;
+    remainder: Node;
+
+    constructor(expectation: Node, remainder: Node) {
+      this.expectation = expectation;
+      this.remainder = remainder;
+    }
+
+    toCode(): string {
+      return `{
+        expectation: ${this.expectation.toCode()},
+        remainder: ${this.remainder.toCode()},
+      }`;
+    }
+
+    toType(): Type {
+      return SimpleType.from("runtime.FailedExpectation");
+    }
+  }
+
   class Expectation extends Reusable {
     type: "literal" | "class" | "any" | "end" | "pattern" | "other";
     value: StringLiteral;
@@ -1704,19 +1746,22 @@ function toTypeScript(
   }
 
   class Failure implements ResultNode {
-    expectations: Expectation[];
     remainder: Node;
+    failedExpectations: Node;
 
-    constructor(expectations: Expectation[], remainder: Node) {
-      this.expectations = expectations;
+    constructor(
+      remainder: Node,
+      failedExpectations: Node = new ArrayLiteral(),
+    ) {
       this.remainder = remainder;
+      this.failedExpectations = failedExpectations;
     }
 
     toCode() {
       return `{
         success: false,
-        expectations: [${this.expectations.map((e) => e.toCode()).join()}],
-        remainder: ${this.remainder.toCode()}
+        remainder: ${this.remainder.toCode()},
+        failedExpectations: ${this.failedExpectations.toCode()},
       }`;
     }
 
@@ -1745,10 +1790,16 @@ function toTypeScript(
     value: Node;
     remainder: Node;
     type: SuccessType;
+    failedExpectations: Node;
 
-    constructor(value: Node, remainder: Node) {
+    constructor(
+      value: Node,
+      remainder: Node,
+      failedExpectations: Node = new ArrayLiteral(),
+    ) {
       this.value = value;
       this.remainder = remainder;
+      this.failedExpectations = failedExpectations;
 
       this.type = SuccessType.from(value.toType());
     }
@@ -1757,7 +1808,8 @@ function toTypeScript(
       return `{
         success: true,
         value: ${this.value.toCode()},
-        remainder: ${this.remainder.toCode()}
+        remainder: ${this.remainder.toCode()},
+        failedExpectations: ${this.failedExpectations.toCode()},
       }`;
     }
 
@@ -1770,14 +1822,15 @@ function toTypeScript(
     constructor(grammar: Peggy.ast.Grammar) {
       super(grammar.location);
 
+      const func = Function.from(grammar.rules[0] as Peggy.ast.Rule);
+      this.expectations = [...func.expectations];
+      this.allowsZeroLength = func.allowsZeroLength;
+
       this.header = new Empty();
       this.setBody(
         new Return(
           new Antecedent(
-            new Invocation(
-              Function.from(grammar.rules[0] as Peggy.ast.Rule),
-              this.args,
-            ),
+            new Invocation(func, this.args),
             (a) =>
               new IfElse(
                 new Equals(
@@ -1791,8 +1844,13 @@ function toTypeScript(
                   ),
                   a,
                   new Failure(
-                    [Expectation.from("end", "end of input")],
                     new Access(a, StringLiteral.from("remainder")),
+                    new ArrayLiteral([
+                      new FailedExpectation(
+                        Expectation.from("end", "end of input"),
+                        new Access(a, StringLiteral.from("remainder")),
+                      ),
+                    ]),
                   ),
                 ),
                 a,
@@ -1824,6 +1882,10 @@ function toTypeScript(
       super(choice.location);
 
       const alternatives = choice.alternatives.map((a) => Function.from(a));
+      this.expectations = [
+        ...new Set(alternatives.map((f) => f.expectations).flat()),
+      ];
+      this.allowsZeroLength = alternatives.some((f) => f.allowsZeroLength);
 
       this.setBody(new Return(new First(alternatives, this.args[0])));
     }
@@ -1841,22 +1903,26 @@ function toTypeScript(
     toReturnCode(): string {
       return `
         const choices = [${this.funcs.map((f) => f.toCode()).join()}];
-        const expectations: runtime.Expectation[] = [];
+        let failedExpectations: runtime.FailedExpectation[] = [];
 
         for (let func = choices.shift(); func !== undefined; func = choices.shift()) {
           const result = func(${this.remainder.toCode()});
+          failedExpectations.push(...result.failedExpectations);
 
           if (result.success === true) {
-            return result;
-          } else {
-            expectations.push(...result.expectations);
+            return {
+              success: true,
+              value: result.value,
+              remainder: result.remainder,
+              failedExpectations,
+            }
           }
         }
 
         return {
           success: false,
-          expectations: [...new Set(expectations)],
-          remainder: ${this.remainder.toCode()}
+          remainder: ${this.remainder.toCode()},
+          failedExpectations,
         };
       `;
     }
@@ -1877,6 +1943,8 @@ function toTypeScript(
       super(rule.location);
 
       this.sub = Function.from(rule.expression);
+      this.expectations = [...this.sub.expectations];
+      this.allowsZeroLength = this.sub.allowsZeroLength;
       this.returnType = ReturnType.from(this.sub);
     }
 
@@ -1902,6 +1970,8 @@ function toTypeScript(
     constructor(not: Peggy.ast.Prefixed) {
       super(not.location);
 
+      this.allowsZeroLength = true;
+
       this.setBody(
         new Return(new Invert(Function.from(not.expression), this.args[0])),
       );
@@ -1916,18 +1986,25 @@ function toTypeScript(
 
       this.originalName = named.name;
 
+      const func = Function.from(named.expression);
+      const expectation = Expectation.from("other", this.originalName);
+      this.expectations = [expectation];
+      this.allowsZeroLength = func.allowsZeroLength;
+
       this.setBody(
         new Return(
-          new Antecedent(
-            new Invocation(Function.from(named.expression), this.args),
+          new Attempt(
+            new Invocation(func, this.args),
+            undefined,
             (a) =>
-              new IfElse(
-                new Access(a, StringLiteral.from("success")),
-                a,
-                new Failure(
-                  [Expectation.from("other", this.originalName)],
-                  new Access(a, StringLiteral.from("remainder")),
-                ),
+              new Failure(
+                new Access(a, StringLiteral.from("remainder")),
+                new ArrayLiteral([
+                  new FailedExpectation(
+                    expectation,
+                    new Access(a, StringLiteral.from("remainder")),
+                  ),
+                ]),
               ),
           ),
         ),
@@ -1954,11 +2031,6 @@ function toTypeScript(
     }
 
     toCode(): string {
-      const expectation = Expectation.from(
-        "other",
-        `not matching ${JSON.stringify(this.func.name)}`,
-      );
-
       return `
         (() => {
           const result = ${this.func.toCode()}(${this.remainder.toCode()});
@@ -1966,14 +2038,15 @@ function toTypeScript(
           if (result.success) {
             return {
               success: false,
-              expectations: [${expectation.toCode()}],
-              remainder: ${this.remainder.toCode()}
+              remainder: ${this.remainder.toCode()},
+              failedExpectations: [],
             }
           } else {
             return {
               success: true,
               value: undefined,
-              remainder: ${this.remainder.toCode()}
+              remainder: ${this.remainder.toCode()},
+              failedExpectations: [],
             };
           }
         })()
@@ -1985,12 +2058,18 @@ function toTypeScript(
     constructor(text: Peggy.ast.Prefixed) {
       super(text.location);
 
+      const func = Function.from(text.expression);
+      this.expectations = [...func.expectations];
+      this.allowsZeroLength = func.allowsZeroLength;
+
       try {
-        this.setBody(new Return(new Capture(text.expression, this.args[0])));
-      } catch (e) {
         this.setBody(
-          new Return(new Extract(Function.from(text.expression), this.args[0])),
+          new Return(
+            new Capture(text.expression, this.args[0], func.expectations),
+          ),
         );
+      } catch (e) {
+        this.setBody(new Return(new Extract(func, this.args[0])));
       }
     }
   }
@@ -1999,8 +2078,8 @@ function toTypeScript(
     regexp: RegExpLiteral;
     value: Node;
 
-    constructor(origin: Origin, value: Node) {
-      this.regexp = new RegExpLiteral(origin);
+    constructor(origin: Origin, value: Node, expectations: Expectation[]) {
+      this.regexp = new RegExpLiteral(origin, expectations);
       this.value = value;
     }
 
@@ -2016,6 +2095,10 @@ function toTypeScript(
     }
 
     toReturnCode() {
+      const failedExpectations = this.regexp.expectations.map(
+        (e) => new FailedExpectation(e, this.value),
+      );
+
       return `
         const matches = ${this.value.toCode()}.match(${this.regexp.toCode()});
 
@@ -2023,13 +2106,14 @@ function toTypeScript(
           return {
             success: true,
             value: matches[0],
-            remainder: ${this.value.toCode()}.slice(matches[0].length)
+            remainder: ${this.value.toCode()}.slice(matches[0].length),
+            failedExpectations: [],
           };
         } else {
           return {
             success: false,
-            expectations: ${this.regexp.getExpectations().toCode()},
-            remainder: ${this.value.toCode()}
+            remainder: ${this.value.toCode()},
+            failedExpectations: [${failedExpectations.map((e) => e.toCode()).join()}],
           }
         }
       `;
@@ -2070,7 +2154,8 @@ function toTypeScript(
           return {
             success: true,
             value: ${this.remainder.toCode()}.slice(0, ${this.remainder.toCode()}.length - result.remainder.length),
-            remainder: result.remainder
+            remainder: result.remainder,
+            failedExpectations: result.failedExpectations,
           }
         } else {
           return result;
@@ -2088,6 +2173,9 @@ function toTypeScript(
 
       this.sub = Function.from(label.expression);
       this.returnType = ReturnType.from(this.sub);
+
+      this.expectations = [...this.sub.expectations];
+      this.allowsZeroLength = this.sub.allowsZeroLength;
 
       if (typeof label.label === "string") {
         this.label = label.label;
@@ -2117,6 +2205,9 @@ function toTypeScript(
 
       this.sub = Function.from(label.expression);
       this.returnType = ReturnType.from(this.sub);
+
+      this.expectations = [...this.sub.expectations];
+      this.allowsZeroLength = this.sub.allowsZeroLength;
     }
 
     toLabel(): string | boolean {
@@ -2269,6 +2360,21 @@ function toTypeScript(
     constructor(sequence: Peggy.ast.Sequence) {
       super(sequence.location);
 
+      const funcs = sequence.elements.map((e) => Function.from(e));
+      this.expectations = [];
+      this.allowsZeroLength = true;
+
+      for (const func of funcs) {
+        this.expectations = [
+          ...new Set([...this.expectations, ...func.expectations]),
+        ];
+
+        if (!func.allowsZeroLength) {
+          this.allowsZeroLength = false;
+          break;
+        }
+      }
+
       const reduction = new Reduction(sequence.elements, this.args[0]);
 
       this.setBody(new Return(reduction));
@@ -2347,6 +2453,9 @@ function toTypeScript(
       super(literal.location);
 
       const value = StringLiteral.from(literal.value);
+      const expectation = Expectation.from("literal", literal.value);
+      this.expectations = [expectation];
+      this.allowsZeroLength = false;
 
       this.setBody(
         new Return(
@@ -2357,8 +2466,10 @@ function toTypeScript(
               new Slice(this.args[0], new NumberLiteral(literal.value.length)),
             ),
             new Failure(
-              [Expectation.from("literal", literal.value)],
               this.args[0],
+              new ArrayLiteral([
+                new FailedExpectation(expectation, this.args[0]),
+              ]),
             ),
           ),
         ),
@@ -2368,19 +2479,13 @@ function toTypeScript(
 
   class RegExpLiteral implements Node {
     regexp: string;
-    expectations: ArrayLiteral<Expectation>;
+    readonly expectations: Expectation[];
 
-    constructor(origin: Origin) {
+    constructor(origin: Origin, expectations: Expectation[] = []) {
       const ignoreCaseFlag =
         origin.type === "class" && origin.ignoreCase ? "i" : "";
       this.regexp = `/^${RegExpLiteral.toRegExpString(origin)}/g${ignoreCaseFlag}`;
-      this.expectations = new ArrayLiteral([
-        Expectation.from("other", `matching ${this.regexp}`),
-      ]);
-    }
-
-    getExpectations() {
-      return this.expectations;
+      this.expectations = expectations;
     }
 
     private static toRegExpString(
@@ -2555,6 +2660,10 @@ function toTypeScript(
     constructor(any: Peggy.ast.Any) {
       super(any.location);
 
+      const expectation = Expectation.from("any", "any character");
+      this.expectations = [expectation];
+      this.allowsZeroLength = false;
+
       this.setBody(
         new Return(
           new IfElse(
@@ -2568,8 +2677,10 @@ function toTypeScript(
               new Slice(this.args[0], new NumberLiteral(1)),
             ),
             new Failure(
-              [Expectation.from("any", "any character")],
               this.args[0],
+              new ArrayLiteral([
+                new FailedExpectation(expectation, this.args[0]),
+              ]),
             ),
           ),
         ),
@@ -2616,6 +2727,9 @@ function toTypeScript(
       super(cls.location);
 
       const regexp = new RegExpLiteral(cls);
+      const expectation = Expectation.from("class", regexp.toCode());
+      this.expectations = [expectation];
+      this.allowsZeroLength = false;
 
       this.setBody(
         new Return(
@@ -2630,8 +2744,10 @@ function toTypeScript(
               new Slice(this.args[0], new NumberLiteral(1)),
             ),
             new Failure(
-              [Expectation.from("pattern", regexp.toCode())],
               this.args[0],
+              new ArrayLiteral([
+                new FailedExpectation(expectation, this.args[0]),
+              ]),
             ),
           ),
         ),
@@ -2662,6 +2778,8 @@ function toTypeScript(
       super(action.location);
 
       const func = Function.from(action.expression);
+      this.expectations = func.expectations;
+      this.allowsZeroLength = func.allowsZeroLength;
 
       const args: Argument[] = [];
       const unwrapped = func.returnType.unwrap();
@@ -2705,40 +2823,6 @@ function toTypeScript(
     }
   }
 
-  class Partial implements Node {
-    func: Function;
-    index: number;
-
-    constructor(func: Function, index: number) {
-      this.func = func;
-      this.index = index;
-    }
-
-    toCode(): string {
-      return `
-        (r: string) => {
-          const result = ${this.func.name}(r);
-
-          if (result.success === true) {
-            return {
-              success: true.
-              value: {
-                $${this.index}: result.value
-              },
-              remainder: result.remainder
-            };
-          } else {
-            return result;
-          }
-        }
-      `;
-    }
-
-    toType(): Type {
-      throw new Error("cannot get type of partial function");
-    }
-  }
-
   class Reduction implements ResultNode {
     interface: Interface;
     remainder: Argument;
@@ -2758,18 +2842,18 @@ function toTypeScript(
 
       for (let i = 0; i < elements.length; ++i) {
         const element = elements[i];
+        const func = Function.from(element);
         if (
           (this.pickIndex !== -1 &&
             !(element.type === "labeled" && element.label === null)) ||
           (insideAction && element.type !== "labeled")
         ) {
           try {
-            this.elements.push(new RegExpLiteral(element));
+            this.elements.push(new RegExpLiteral(element, func.expectations));
           } catch (e) {
-            this.elements.push(Function.from(element));
+            this.elements.push(func);
           }
         } else {
-          const func = Function.from(element);
           this.elements.push(func);
           this.functions.push(func);
         }
@@ -2791,28 +2875,39 @@ function toTypeScript(
 
     toReturnCode() {
       return `
+        const failedExpectations: runtime.FailedExpectation[] = [];
         let remainder = ${this.remainder.toCode()};
         ${this.elements
           .map((e, i) => {
             if (e instanceof Function) {
               return `
                 const result${i} = ${e.toCode()}(remainder);
+                failedExpectations.push(...result${i}.failedExpectations);
 
                 if (result${i}.success === false) {
-                  return result${i};
+                  return {
+                    success: false,
+                    remainder: result${i}.remainder,
+                    failedExpectations,
+                  }
                 } else {
                   remainder = result${i}.remainder;
                 }
               `;
             } else {
+              const failedExpectations = e.expectations.map(
+                (exp) => new FailedExpectation(exp, new Raw("remainder")),
+              );
+
               return `
                 const result${i} = remainder.match(${e.toCode()});
+                failedExpectations.push(${failedExpectations.map((f) => f.toCode()).join()});
 
                 if (result${i}?.length !== 1) {
                   return {
                     success: false,
-                    expectations: ${e.getExpectations().toCode()},
-                    remainder
+                    remainder,
+                    failedExpectations,
                   }
                 } else {
                   remainder = remainder.slice(result${i}[0].length);
@@ -2828,12 +2923,14 @@ function toTypeScript(
           return {
             success: true,
             value: result${this.pickIndex}.value,
-            remainder
+            remainder,
+            failedExpectations,
           }`
             : `return {
             success: true,
             value: [${this.functions.map((f) => `result${this.elements.indexOf(f)}.value`).join()}],
-            remainder
+            remainder,
+            failedExpectations,
           }`
         }`;
     }
@@ -2881,14 +2978,28 @@ function toTypeScript(
       if (result.success === true) {
         return result.value;
       } else {
+        let remainder = input;
+        let failedExpectations: runtime.FailedExpectation[] = [];
+        
+        for (const e of result.failedExpectations) {
+          if (e.remainder.length < remainder.length) {
+            remainder = e.remainder;
+            failedExpectations = []; 
+          }
+          
+          if (e.remainder.length === remainder.length) {
+            failedExpectations.push(e);
+          }
+        }
+        
         throw new SyntaxError(
-          result.expectations,
-          result.remainder.slice(0, 1),
+          failedExpectations.map(e => e.expectation),
+          remainder.slice(0, 1),
           runtime.getLocation(
             parse$source,
             input,
-            result.remainder,
-            result.remainder
+            remainder,
+            remainder
           )
         );
       }
