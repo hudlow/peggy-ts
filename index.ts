@@ -84,6 +84,7 @@ function toTypeScript(
   interface Node {
     toCode(): string;
     toType(): Type;
+    getReferencedNodes(): Node[];
   }
 
   interface ResultNode extends Node {
@@ -114,6 +115,10 @@ function toTypeScript(
     toType() {
       return this.value.toType();
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.arg];
+    }
   }
 
   abstract class Reusable implements Node {
@@ -123,6 +128,7 @@ function toTypeScript(
     abstract toDefinition(): string;
     abstract toCode(): string;
     abstract toType(): Type;
+    abstract getReferencedNodes(): Node[];
 
     static getDirectory() {
       return [...this.#directory];
@@ -237,6 +243,10 @@ function toTypeScript(
     toType(): Type {
       return this.type;
     }
+
+    getReferencedNodes(): Node[] {
+      return [...this.values, this.input, this.remainder];
+    }
   }
 
   class Argument implements Node {
@@ -258,6 +268,10 @@ function toTypeScript(
 
     toType() {
       return this.type;
+    }
+
+    getReferencedNodes(): Node[] {
+      return [];
     }
   }
 
@@ -305,6 +319,10 @@ function toTypeScript(
 
     unwrap(): Type {
       return this;
+    }
+
+    getReferencedNodes(): Node[] {
+      return [];
     }
   }
 
@@ -379,7 +397,7 @@ function toTypeScript(
       `;
     }
 
-    static from(origin: Origin): Function {
+    static from(origin: Origin, insideAction: boolean = false): Function {
       const found = Reusable.find(
         (f) => f instanceof Function && f.source === origin.location,
       );
@@ -393,7 +411,7 @@ function toTypeScript(
       } else if (origin.type === "choice") {
         return new Choice(origin);
       } else if (origin.type === "sequence") {
-        return new Sequence(origin);
+        return new Sequence(origin, insideAction);
       } else if (origin.type === "rule_ref") {
         const foundOrigin = grammar.rules.find((r) => r.name === origin.name);
 
@@ -439,6 +457,10 @@ function toTypeScript(
 
     toType(): Type {
       throw new Error("function types not supported");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [...this.args, this.body, ...this.expectations, this.header];
     }
   }
 
@@ -519,6 +541,12 @@ function toTypeScript(
             }`
             : `return { success: true, value: values, remainder, failedExpectations };`
         }`;
+    }
+
+    getReferencedNodes(): Node[] {
+      const nodes: Node[] = [this.func, this.remainder];
+
+      return this.delimiter !== undefined ? [...nodes, this.delimiter] : nodes;
     }
   }
 
@@ -669,6 +697,10 @@ function toTypeScript(
     check(value: Node): Node {
       return new TypeOf(value, this);
     }
+
+    getReferencedNodes(): Node[] {
+      return [];
+    }
   }
 
   class LiteralType implements Type {
@@ -715,6 +747,10 @@ function toTypeScript(
     check(value: Node): Node {
       return new Equals(value, this.value);
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.value];
+    }
   }
 
   class Equals implements Node {
@@ -733,6 +769,10 @@ function toTypeScript(
     toType(): Type {
       return SimpleType.from("boolean");
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.left, this.right];
+    }
   }
 
   class TypeOf implements Node {
@@ -750,6 +790,10 @@ function toTypeScript(
 
     toType() {
       return SimpleType.from("boolean");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.value, this.type];
     }
   }
 
@@ -796,6 +840,10 @@ function toTypeScript(
 
     static check(value: Node): Node {
       return new Not(new Access(value, StringLiteral.from("success")));
+    }
+
+    getReferencedNodes(): Node[] {
+      return [];
     }
   }
 
@@ -856,6 +904,10 @@ function toTypeScript(
     static check(value: Node): Node {
       return new Access(value, StringLiteral.from("success"));
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.subtype];
+    }
   }
 
   class ArrayType implements Type {
@@ -905,6 +957,10 @@ function toTypeScript(
 
     check(value: Node): Node {
       throw new Error("cannot type check array");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.type];
     }
   }
 
@@ -1019,6 +1075,10 @@ function toTypeScript(
     check(value: Node): Node {
       throw new Error("cannot type check union");
     }
+
+    getReferencedNodes(): Node[] {
+      return [...this.types];
+    }
   }
 
   class Property {
@@ -1060,6 +1120,10 @@ function toTypeScript(
 
     toType(): Type {
       throw new Error("cannot get type of raw node");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [];
     }
   }
 
@@ -1139,6 +1203,10 @@ function toTypeScript(
     check(value: Node): Node {
       return new IsInterface(value, this);
     }
+
+    getReferencedNodes(): Node[] {
+      return [...this.properties.map((p) => p.type)];
+    }
   }
 
   class IsInterface implements Node {
@@ -1157,6 +1225,10 @@ function toTypeScript(
     toType(): Type {
       return SimpleType.from("boolean");
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.value, this.intf];
+    }
   }
 
   class Empty implements Node {
@@ -1166,6 +1238,10 @@ function toTypeScript(
 
     toType(): Type {
       return SimpleType.from("undefined");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [];
     }
   }
 
@@ -1191,6 +1267,10 @@ function toTypeScript(
 
       return this.func.returnType;
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.func, ...this.args];
+    }
   }
 
   class RawReturnTypeOf implements Node {
@@ -1208,6 +1288,10 @@ function toTypeScript(
 
     toType(): Type {
       return SimpleType.from("boolean");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.value, this.type];
     }
   }
 
@@ -1273,6 +1357,10 @@ function toTypeScript(
     check(value: Node): Node {
       return new RawReturnTypeOf(value, this);
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.type];
+    }
   }
 
   class ReturnTypeOf implements Node {
@@ -1290,6 +1378,10 @@ function toTypeScript(
 
     toType(): Type {
       return SimpleType.from("boolean");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.value, this.type];
     }
   }
 
@@ -1349,6 +1441,10 @@ function toTypeScript(
     check(value: Node): Node {
       return new ReturnTypeOf(value, this);
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.func];
+    }
   }
 
   type Runner<N extends ResultNode> = (proxy: ResultProxy<N>) => ResultNode;
@@ -1383,6 +1479,10 @@ function toTypeScript(
     toType(): ResultType {
       return this.node.toType();
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.proxy, this.node];
+    }
   }
 
   class ResultProxy<N extends ResultNode> implements ResultNode {
@@ -1407,6 +1507,10 @@ function toTypeScript(
 
     toType(): ResultType {
       return this.node.toType();
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.node];
     }
   }
 
@@ -1455,6 +1559,10 @@ function toTypeScript(
     toString(): string {
       return this.#value;
     }
+
+    getReferencedNodes(): Node[] {
+      return [];
+    }
   }
 
   abstract class LiteralNode implements Node {
@@ -1477,6 +1585,10 @@ function toTypeScript(
       }
 
       throw new Error("cannot convert to literal");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [];
     }
   }
 
@@ -1626,6 +1738,10 @@ function toTypeScript(
     toType(): Type {
       throw new Error("not supported");
     }
+
+    getReferencedNodes(): Node[] {
+      return [...this.values];
+    }
   }
 
   type FullSet<T> = Set<T> & { symmetricDifference: (s: Set<T>) => Set<T> };
@@ -1652,6 +1768,10 @@ function toTypeScript(
     toType(): Type {
       throw new Error("not supported");
     }
+
+    getReferencedNodes(): Node[] {
+      return [...this.definitions];
+    }
   }
 
   class Return implements ResultNode {
@@ -1676,6 +1796,10 @@ function toTypeScript(
     toType(): ResultType {
       return this.node.toType();
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.node];
+    }
   }
 
   class FailedExpectation implements Node {
@@ -1696,6 +1820,10 @@ function toTypeScript(
 
     toType(): Type {
       return SimpleType.from("runtime.FailedExpectation");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.expectation, this.remainder];
     }
   }
 
@@ -1743,6 +1871,10 @@ function toTypeScript(
     toType(): Type {
       return SimpleType.from("runtime.Expectation");
     }
+
+    getReferencedNodes(): Node[] {
+      return [];
+    }
   }
 
   class Failure implements ResultNode {
@@ -1768,6 +1900,10 @@ function toTypeScript(
     toType() {
       return FailureType.singleton;
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.remainder, this.failedExpectations];
+    }
   }
 
   class KnownFailure implements ResultNode {
@@ -1783,6 +1919,10 @@ function toTypeScript(
 
     toType() {
       return FailureType.singleton;
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.node];
     }
   }
 
@@ -1815,6 +1955,10 @@ function toTypeScript(
 
     toType(): SuccessType {
       return this.type;
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.value, this.remainder, this.type, this.failedExpectations];
     }
   }
 
@@ -1875,6 +2019,10 @@ function toTypeScript(
     toType(): Type {
       throw new Error("not supported");
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.node];
+    }
   }
 
   class Choice extends Function {
@@ -1934,6 +2082,10 @@ function toTypeScript(
     toType(): ResultType {
       return UnionType.from(...this.funcs.map((f) => ReturnType.from(f)));
     }
+
+    getReferencedNodes(): Node[] {
+      return [...this.funcs, this.remainder];
+    }
   }
 
   class Rule extends Function {
@@ -1963,6 +2115,10 @@ function toTypeScript(
       } else {
         return super.toDefinition();
       }
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.sub];
     }
   }
 
@@ -2052,6 +2208,10 @@ function toTypeScript(
         })()
       `;
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.func, this.remainder];
+    }
   }
 
   class Text extends Function {
@@ -2118,6 +2278,10 @@ function toTypeScript(
         }
       `;
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.regexp, this.value];
+    }
   }
 
   class Extract implements ResultNode, ReturnNode {
@@ -2162,6 +2326,10 @@ function toTypeScript(
         }
       `;
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.func, this.remainder];
+    }
   }
 
   class Label extends Function {
@@ -2195,6 +2363,10 @@ function toTypeScript(
     toDefinition(): string {
       return "";
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.sub];
+    }
   }
 
   class Pick extends Function {
@@ -2221,13 +2393,17 @@ function toTypeScript(
     toDefinition(): string {
       return "";
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.sub];
+    }
   }
 
   interface NodeTransformer {
     (from: Node): Node;
   }
 
-  class Access {
+  class Access implements Node {
     node: Node;
     key: Node & Stringy;
 
@@ -2247,6 +2423,10 @@ function toTypeScript(
     toType(): Type {
       return this.node.toType().propertyType(this.key);
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.node, this.key];
+    }
   }
 
   class Not implements Node {
@@ -2263,6 +2443,10 @@ function toTypeScript(
 
     toType(): Type {
       return this.type;
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.node, this.type];
     }
   }
 
@@ -2281,6 +2465,10 @@ function toTypeScript(
 
     toType(): Type {
       return SimpleType.from("boolean");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.node, this.type];
     }
   }
 
@@ -2319,6 +2507,10 @@ function toTypeScript(
     toType(): ResultType {
       return this.node.toType();
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.node];
+    }
   }
 
   class IfElse implements ResultNode {
@@ -2354,10 +2546,14 @@ function toTypeScript(
     toType(): ResultType {
       return UnionType.from(this.ifTrue.toType(), this.elseFalse.toType());
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.condition, this.ifTrue, this.elseFalse];
+    }
   }
 
   class Sequence extends Function {
-    constructor(sequence: Peggy.ast.Sequence) {
+    constructor(sequence: Peggy.ast.Sequence, insideAction: boolean = false) {
       super(sequence.location);
 
       const funcs = sequence.elements.map((e) => Function.from(e));
@@ -2375,7 +2571,11 @@ function toTypeScript(
         }
       }
 
-      const reduction = new Reduction(sequence.elements, this.args[0]);
+      const reduction = new Reduction(
+        sequence.elements,
+        this.args[0],
+        insideAction,
+      );
 
       this.setBody(new Return(reduction));
     }
@@ -2397,6 +2597,10 @@ function toTypeScript(
     toType(): Type {
       return SimpleType.from("boolean");
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.left, this.right];
+    }
   }
 
   class StartsWith implements Node {
@@ -2414,6 +2618,10 @@ function toTypeScript(
 
     toType(): Type {
       return SimpleType.from("boolean");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.haystack, this.needle];
     }
   }
 
@@ -2445,6 +2653,10 @@ function toTypeScript(
 
     toType(): Type {
       return SimpleType.from("string");
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.value, this.start, this.length];
     }
   }
 
@@ -2636,6 +2848,10 @@ function toTypeScript(
     toCode() {
       return this.regexp;
     }
+
+    getReferencedNodes(): Node[] {
+      return [...this.expectations];
+    }
   }
 
   class Match implements Node {
@@ -2653,6 +2869,10 @@ function toTypeScript(
 
     toCode() {
       return `${this.regexp.toCode()}.test(${this.value.toCode()})`;
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.regexp, this.value];
     }
   }
 
@@ -2702,6 +2922,10 @@ function toTypeScript(
     toCode(): string {
       return `${this.lengthy.toCode()}.length`;
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.lengthy];
+    }
   }
 
   class GreaterThan implements Node {
@@ -2719,6 +2943,10 @@ function toTypeScript(
 
     toCode() {
       return `${this.left.toCode()} > ${this.right.toCode()}`;
+    }
+
+    getReferencedNodes(): Node[] {
+      return [this.left, this.right];
     }
   }
 
@@ -2771,13 +2999,17 @@ function toTypeScript(
     toType(): Type {
       return SimpleType.from("undefined");
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.left, this.right];
+    }
   }
 
   class Action extends Function {
     constructor(action: Peggy.ast.Action) {
       super(action.location);
 
-      const func = Function.from(action.expression);
+      const func = Function.from(action.expression, true);
       this.expectations = func.expectations;
       this.allowsZeroLength = func.allowsZeroLength;
 
@@ -2844,8 +3076,7 @@ function toTypeScript(
         const element = elements[i];
         const func = Function.from(element);
         if (
-          (this.pickIndex !== -1 &&
-            !(element.type === "labeled" && element.label === null)) ||
+          (this.pickIndex !== -1 && this.pickIndex !== i) ||
           (insideAction && element.type !== "labeled")
         ) {
           try {
@@ -2947,10 +3178,25 @@ function toTypeScript(
         FailureType.singleton,
       );
     }
+
+    getReferencedNodes(): Node[] {
+      return [this.interface, this.remainder, ...this.elements, this.valueType];
+    }
+  }
+
+  const referencedNodes: Node[] = [];
+
+  function getAllReferencedNodes(node: Node) {
+    if (!referencedNodes.includes(node)) {
+      referencedNodes.push(node);
+      node.getReferencedNodes().map(getAllReferencedNodes);
+    }
   }
 
   const parser = new Parser(grammar);
   const reusables = Reusable.getDirectory();
+
+  getAllReferencedNodes(parser);
 
   let code = `
     ${runtime}
@@ -2959,10 +3205,12 @@ function toTypeScript(
 
     ${reusables
       .filter((r) => r instanceof Expectation)
+      .filter((r) => referencedNodes.includes(r))
       .map((r) => r.toDefinition())
       .join("\n")}
     ${reusables
       .filter((r) => r instanceof Interface)
+      .filter((r) => referencedNodes.includes(r))
       .map((r) => r.toDefinition())
       .join("\n")}
 
@@ -3006,10 +3254,12 @@ function toTypeScript(
 
       ${reusables
         .filter((r) => r instanceof Code)
+        .filter((r) => referencedNodes.includes(r))
         .map((r) => r.toDefinition())
         .join("\n")}
       ${reusables
         .filter((r) => r instanceof Function)
+        .filter((r) => referencedNodes.includes(r))
         .map((r) => r.toDefinition())
         .join("\n")}
     }
