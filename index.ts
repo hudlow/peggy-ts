@@ -530,7 +530,7 @@ function toTypeScript(
 
           remainder = result.remainder;
           values.push(result.value);
-        } while (${this.max !== undefined ? `values.length <= ${this.max}` : `true`});
+        } while (${this.max !== undefined ? `values.length < ${this.max}` : `true`});
 
         ${
           this.min
@@ -1156,16 +1156,12 @@ function toTypeScript(
     }
 
     toDefinition(): string {
-      return (
-        `
-        type ${this.name} = [` +
-        this.properties.map((p) => p.type.toCode()).join() +
-        `]`
-      );
+      // For now, not actually reusing interfaces
+      return "";
     }
 
     toCode(): string {
-      return this.name;
+      return `[${this.properties.map((p) => p.type.toCode()).join()}]`;
     }
 
     toAnnotation(): string {
@@ -3215,8 +3211,6 @@ function toTypeScript(
       .join("\n")}
 
     export function parse(input: string, options: runtime.ParseOptions = new runtime.ParseOptions()): ${parser.returnType.unwrap().toCode()} {
-      const parse$lines = input.split(/\\r\\n|\\r|\\n/);
-      const parse$totalLength = input.length;
       const parse$source = options.grammarSource;
 
       ${initializer}
@@ -3228,18 +3222,18 @@ function toTypeScript(
       } else {
         let remainder = input;
         let failedExpectations: runtime.FailedExpectation[] = [];
-        
+
         for (const e of result.failedExpectations) {
           if (e.remainder.length < remainder.length) {
             remainder = e.remainder;
-            failedExpectations = []; 
+            failedExpectations = [];
           }
-          
+
           if (e.remainder.length === remainder.length) {
             failedExpectations.push(e);
           }
         }
-        
+
         throw new SyntaxError(
           failedExpectations.map(e => e.expectation),
           remainder.slice(0, 1),

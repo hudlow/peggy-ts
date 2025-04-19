@@ -69,29 +69,9 @@ namespace runtime {
     text: string;
   }
 
-  function hex(ch: string): string {
-    return ch.charCodeAt(0).toString(16).toUpperCase();
-  }
-
   export interface Expectation {
     type: "literal" | "class" | "any" | "end" | "pattern" | "other";
     value: string;
-  }
-
-  function escape(s: string): string {
-    return s
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"')
-      .replace(/\0/g, "\\0")
-      .replace(/\t/g, "\\t")
-      .replace(/\n/g, "\\n")
-      .replace(/\r/g, "\\r")
-      .replace(/[\x00-\x0F]/g, function (ch) {
-        return "\\x0" + hex(ch);
-      })
-      .replace(/[\x10-\x1F\x7F-\x9F]/g, function (ch) {
-        return "\\x" + hex(ch);
-      });
   }
 
   export class ParseFailure {}
