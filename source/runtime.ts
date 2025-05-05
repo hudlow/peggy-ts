@@ -226,21 +226,34 @@ export class SyntaxError extends ParseError {
     found: string,
   ): string {
     function encode(s: string): string {
-      const entropyToken = "(fvo47fu3AwHrHsLEMNa7uUXYUF4rQgdm)";
-
       return (
         "'" +
-        s
-          .replaceAll("\\", entropyToken)
-          .replaceAll("\x07", "\\a")
-          .replaceAll("\b", "\\b")
-          .replaceAll("\f", "\\f")
-          .replaceAll("\n", "\\n")
-          .replaceAll("\r", "\\r")
-          .replaceAll("\t", "\\t")
-          .replaceAll("\v", "\\v")
-          .replaceAll("'", "\\'")
-          .replaceAll(entropyToken, "\\\\") +
+        s.replace(/[\\\x07\b\f\n\r\t\v']/g, (match) => {
+          switch (match) {
+            case "\\":
+              return "\\\\";
+            case "\x07":
+              return "\\x07";
+            case "\b":
+              return "\\b";
+            case "\f":
+              return "\\f";
+            case "\n":
+              return "\\n";
+            case "\r":
+              return "\\r";
+            case "\t":
+              return "\\t";
+            case "\v":
+              return "\\v";
+            case "'":
+              return "\\'";
+            default:
+              throw new Error(
+                "Unexpected string encoding replacement character. This should be an unreachable error.",
+              );
+          }
+        }) +
         "'"
       );
     }
