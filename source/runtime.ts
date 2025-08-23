@@ -64,11 +64,6 @@ namespace runtime {
     return str + padString.slice(0, targetLength);
   }
 
-  export interface SourceText {
-    source: any;
-    text: string;
-  }
-
   export interface Expectation {
     type: "literal" | "class" | "any" | "end" | "pattern" | "other";
     value: string;
@@ -188,7 +183,7 @@ export class ParseError extends Error {
   constructor(
     message: string,
     location: runtime.LocationRange,
-    name: string = "parse error",
+    name = "parse error",
   ) {
     super(ParseError.#formatMessage(message, location));
     this.name = name;
@@ -206,7 +201,7 @@ export class ParseError extends Error {
   }
 }
 
-export class SyntaxError extends ParseError {
+export class ParseSyntaxError extends ParseError {
   expected: runtime.Expectation[];
   found: string | null;
 
@@ -214,9 +209,9 @@ export class SyntaxError extends ParseError {
     expected: runtime.Expectation[],
     found: string,
     location: runtime.LocationRange,
-    name: string = "syntax error",
+    name = "syntax error",
   ) {
-    super(SyntaxError.#formatMessage(expected, found), location, name);
+    super(ParseSyntaxError.#formatMessage(expected, found), location, name);
     this.expected = expected;
     this.found = found;
   }

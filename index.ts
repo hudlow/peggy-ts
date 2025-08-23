@@ -503,16 +503,17 @@ function toTypeScript(
         const values: Array<${this.func.returnType.unwrap().toCode()}> = [];
         const failedExpectations: runtime.FailedExpectation[] = [];
         let remainder = ${this.remainder.toCode()};
-        let result;
 
-        do {
+        while (
+          ${this.max !== undefined ? `&& values.length < ${this.max}` : `true`}
+        ) {
           let r = remainder;
           ${
             this.delimiter
               ? `
               if (values.length > 0) {
-                result = ${this.delimiter.toCode()}(r);
-
+                const result = ${this.delimiter.toCode()}(r);
+                failedExpectations.push(...result.failedExpectations);
                 if (result.success === false) {
                   break;
                 }
@@ -522,7 +523,7 @@ function toTypeScript(
               : ``
           }
 
-          result = ${this.func.toCode()}(r);
+          const result = ${this.func.toCode()}(r);
           failedExpectations.push(...result.failedExpectations);
           if (result.success === false) {
             break;
@@ -530,15 +531,15 @@ function toTypeScript(
 
           remainder = result.remainder;
           values.push(result.value);
-        } while (${this.max !== undefined ? `values.length < ${this.max}` : `true`});
+        }
 
         ${
           this.min
-            ? `if (values.length < ${this.min} && result.success === false /* technically redundant */) {
-              return { success: false, remainder: result.remainder, failedExpectations };
-            } else {
-              return { success: true, value: values, remainder, failedExpectations };
-            }`
+            ? `if (values.length < ${this.min}) {
+              return { success: false, remainder: ${this.remainder.toCode()}, failedExpectations };
+            }
+
+            return { success: true, value: values, remainder, failedExpectations };`
             : `return { success: true, value: values, remainder, failedExpectations };`
         }`;
     }
@@ -2193,14 +2194,14 @@ function toTypeScript(
               remainder: ${this.remainder.toCode()},
               failedExpectations: [],
             }
-          } else {
-            return {
-              success: true,
-              value: undefined,
-              remainder: ${this.remainder.toCode()},
-              failedExpectations: [],
-            };
           }
+
+          return {
+            success: true,
+            value: undefined,
+            remainder: ${this.remainder.toCode()},
+            failedExpectations: [],
+          };
         })()
       `;
     }
@@ -2265,12 +2266,12 @@ function toTypeScript(
             remainder: ${this.value.toCode()}.slice(matches[0].length),
             failedExpectations: [],
           };
-        } else {
-          return {
-            success: false,
-            remainder: ${this.value.toCode()},
-            failedExpectations: [${failedExpectations.map((e) => e.toCode()).join()}],
-          }
+        }
+
+        return {
+          success: false,
+          remainder: ${this.value.toCode()},
+          failedExpectations: [${failedExpectations.map((e) => e.toCode()).join()}],
         }
       `;
     }
@@ -2317,9 +2318,9 @@ function toTypeScript(
             remainder: result.remainder,
             failedExpectations: result.failedExpectations,
           }
-        } else {
-          return result;
         }
+
+        return result;
       `;
     }
 
@@ -2533,9 +2534,9 @@ function toTypeScript(
       return `
         if (${this.condition.toCode()}) {
           ${new Return(this.ifTrue).toCode()};
-        } else {
-          ${new Return(this.elseFalse).toCode()};
         }
+
+        ${new Return(this.elseFalse).toCode()};
       `;
     }
 
@@ -3117,9 +3118,9 @@ function toTypeScript(
                     remainder: result${i}.remainder,
                     failedExpectations,
                   }
-                } else {
-                  remainder = result${i}.remainder;
                 }
+
+                remainder = result${i}.remainder;
               `;
             } else {
               const failedExpectations = e.expectations.map(
@@ -3136,9 +3137,9 @@ function toTypeScript(
                     remainder,
                     failedExpectations,
                   }
-                } else {
-                  remainder = remainder.slice(result${i}[0].length);
                 }
+
+                remainder = remainder.slice(result${i}[0].length);
               `;
             }
           })
@@ -3219,32 +3220,32 @@ function toTypeScript(
 
       if (result.success === true) {
         return result.value;
-      } else {
-        let remainder = input;
-        let failedExpectations: runtime.FailedExpectation[] = [];
+      }
 
-        for (const e of result.failedExpectations) {
-          if (e.remainder.length < remainder.length) {
-            remainder = e.remainder;
-            failedExpectations = [];
-          }
+      let remainder = input;
+      let failedExpectations: runtime.FailedExpectation[] = [];
 
-          if (e.remainder.length === remainder.length) {
-            failedExpectations.push(e);
-          }
+      for (const e of result.failedExpectations) {
+        if (e.remainder.length < remainder.length) {
+          remainder = e.remainder;
+          failedExpectations = [];
         }
 
-        throw new SyntaxError(
-          failedExpectations.map(e => e.expectation),
-          remainder.slice(0, 1),
-          runtime.getLocation(
-            parse$source,
-            input,
-            remainder,
-            remainder
-          )
-        );
+        if (e.remainder.length === remainder.length) {
+          failedExpectations.push(e);
+        }
       }
+
+      throw new ParseSyntaxError(
+        failedExpectations.map(e => e.expectation),
+        remainder.slice(0, 1),
+        runtime.getLocation(
+          parse$source,
+          input,
+          remainder,
+          remainder
+        )
+      );
 
       ${reusables
         .filter((r) => r instanceof Code)
