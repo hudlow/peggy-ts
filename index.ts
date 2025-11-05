@@ -2775,7 +2775,8 @@ function toTypeScript(
             return `(${RegExpLiteral.toRegExpString(origin.expression, [...parents, origin])}){${innerMin},${innerMax}}`;
           }
         case "any":
-          return ".";
+          // `.` is single-line only!
+          return "[\\s\\S]";
         case "class":
           if (origin.ignoreCase && parents.length > 0) {
             throw new Error("cannot handle nested ignore case");
