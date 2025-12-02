@@ -12,19 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as Peggy from "peggy";
+import * as assert from "node:assert/strict";
+import { test } from "node:test";
 import { run } from "./utilities.ts";
-
-function actionGrammar(code: string) {
-  return `
-    start = a / b
-    a = [0-9]+
-    b = c s @d
-    c = "hello"
-    d = foo:"world" { ${code} }
-    s = " "
-  `;
-}
 
 function testAction(code: string) {
   test("correct result for `" + code + "`", async () => {
@@ -38,11 +28,9 @@ function testAction(code: string) {
     `;
 
     const out = await run(grammar, `hello world`);
-
     const control = await run(grammar, `hello world`, true);
 
-    // expect(out.success).toBe(true);
-    expect(out).toEqual(control);
+    assert.deepEqual(out, control);
   });
 }
 

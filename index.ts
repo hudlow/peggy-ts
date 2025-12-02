@@ -19,8 +19,9 @@ import * as Morph from "ts-morph";
 import { SourceNode } from "source-map-generator";
 
 import runtime from "./library/runtime.ts";
-import inferReturnType from "./library/infer-return-type.ts";
+import getFunctionDiagnostics from "./library/function-diagnostics.ts";
 import compile from "./library/compile.ts";
+import { disconnect } from "node:process";
 
 export function use(config: Peggy.Config, options: Peggy.ParserBuildOptions) {
   config.passes.generate = [
@@ -151,104 +152,6 @@ function toTypeScript(
     }
   }
 
-  class Code extends Reusable {
-    action: Peggy.ast.Action;
-    values: Value[];
-    type: Type;
-    input: Node;
-    remainder: Node;
-
-    private constructor(
-      action: Peggy.ast.Action,
-      values: Value[],
-      input: Node,
-      remainder: Node,
-    ) {
-      super();
-
-      this.action = action;
-      this.values = values;
-      this.type = new NoType();
-      this.input = input;
-      this.remainder = remainder;
-
-      const typeMatch = this.action.code.match(/^\s*\/\*\s*:(.+)\*\//);
-
-      if (typeMatch !== null) {
-        this.type = SimpleType.from((typeMatch[1] as string).trim());
-      } else {
-        this.type = SimpleType.from(
-          inferReturnType(
-            Reusable.getDirectory()
-              .map((r) => r.toDefinition())
-              .join("\n"),
-            this.name,
-            `${getHeaderCode()}\n${initializer}`,
-            options.additionalFiles,
-          ),
-        );
-      }
-    }
-
-    static from(
-      action: Peggy.ast.Action,
-      values: Value[],
-      input: Node,
-      remainder: Node,
-    ) {
-      const found = Reusable.find(
-        (c) => c instanceof Code && c.action === action,
-      );
-
-      if (found !== undefined) {
-        return found as Code;
-      } else {
-        return new Code(action, values, input, remainder);
-      }
-    }
-
-    toDefinition(): string {
-      return `
-        function ${this.name}(
-          location: () => runtime.LocationRange,
-          range: () => runtime.Range,
-          text: () => string,
-          offset: () => number,
-          error: (s: string, l?: runtime.LocationRange) => void,
-          ${this.values.map((v) => v.arg.toDefinition()).join()}
-        )${this.type.toAnnotation()}
-        {
-          ${this.action.code}
-        }
-      `;
-    }
-
-    toCode(): string {
-      return `${this.name}(
-        () => runtime.getLocation(parse$source, input, ${this.input.toCode()}, ${this.remainder.toCode()}),
-        () => runtime.getRange(parse$source, input, ${this.input.toCode()}, ${this.remainder.toCode()}),
-        () => runtime.getText(${this.input.toCode()}, ${this.remainder.toCode()}),
-        () => (input.length - ${this.input.toCode()}.length),
-        (
-          message: string,
-          location = runtime.getLocation(parse$source, input, ${this.input.toCode()}, ${this.remainder.toCode()}),
-          name?: string,
-        ) => {
-          throw new ParseError(message, location, name)
-        },
-        ${this.values.map((v) => v.toCode()).join()}
-      )`;
-    }
-
-    toType(): Type {
-      return this.type;
-    }
-
-    getReferencedNodes(): Node[] {
-      return [...this.values, this.input, this.remainder];
-    }
-  }
-
   class Argument implements Node {
     name: string;
     type: Type;
@@ -272,6 +175,140 @@ function toTypeScript(
 
     getReferencedNodes(): Node[] {
       return [];
+    }
+  }
+
+  class CodeArgument extends Argument {
+    valueFunc: () => string;
+
+    constructor(name: string, type: Type, valueFunc: () => string) {
+      super(name, type);
+      this.valueFunc = valueFunc;
+    }
+  }
+
+  class Code extends Reusable {
+    action: Peggy.ast.Action;
+    values: Value[];
+    type: Type;
+    input: Node;
+    remainder: Node;
+    args: CodeArgument[] = [
+      new CodeArgument(
+        "location",
+        SimpleType.from("() => runtime.LocationRange"),
+        () =>
+          `() => runtime.getLocation(parse$source, input, ${this.input.toCode()}, ${this.remainder.toCode()})`,
+      ),
+      new CodeArgument(
+        "range",
+        SimpleType.from("() => runtime.Range"),
+        () =>
+          `() => runtime.getRange(parse$source, input, ${this.input.toCode()}, ${this.remainder.toCode()})`,
+      ),
+      new CodeArgument(
+        "text",
+        SimpleType.from("() => string"),
+        () =>
+          `() => runtime.getText(${this.input.toCode()}, ${this.remainder.toCode()})`,
+      ),
+      new CodeArgument(
+        "offset",
+        SimpleType.from("() => number"),
+        () => `() => (input.length - ${this.input.toCode()}.length)`,
+      ),
+      new CodeArgument(
+        "error",
+        SimpleType.from("(s: string, l?: runtime.LocationRange) => void"),
+        () => `(
+            message: string,
+            location = runtime.getLocation(parse$source, input, ${this.input.toCode()}, ${this.remainder.toCode()}),
+            name?: string,
+          ) => {
+            throw new ParseError(message, location, name)
+          }`,
+      ),
+    ];
+
+    private constructor(
+      action: Peggy.ast.Action,
+      values: Value[],
+      input: Node,
+      remainder: Node,
+    ) {
+      super();
+
+      this.action = action;
+      this.values = values;
+      this.type = new NoType();
+      this.input = input;
+      this.remainder = remainder;
+      this.args.push(
+        ...this.values.map(
+          (v) => new CodeArgument(v.arg.name, v.arg.type, () => v.toCode()),
+        ),
+      );
+
+      const typeMatch = this.action.code.match(/^\s*\/\*\s*:(.+)\*\//);
+      const diagnostics = getFunctionDiagnostics(
+        Reusable.getDirectory()
+          .map((r) => r.toDefinition())
+          .join("\n"),
+        this.name,
+        `${getHeaderCode()}\n${initializer}`,
+      );
+
+      this.args = this.args.filter(
+        (a) => !diagnostics.unusedArgs.includes(a.name),
+      );
+
+      if (typeMatch !== null) {
+        this.type = SimpleType.from((typeMatch[1] as string).trim());
+      } else {
+        this.type = SimpleType.from(diagnostics.returnType);
+      }
+    }
+
+    static from(
+      action: Peggy.ast.Action,
+      values: Value[],
+      input: Node,
+      remainder: Node,
+    ) {
+      const found = Reusable.find(
+        (c) => c instanceof Code && c.action === action,
+      );
+
+      if (found !== undefined) {
+        return found as Code;
+      } else {
+        return new Code(action, values, input, remainder);
+      }
+    }
+
+    toDefinition(): string {
+      return `
+        function ${this.name}(
+          ${this.args.map((a) => a.toDefinition()).join()}
+        )${this.type.toAnnotation()}
+        {
+          ${this.action.code}
+        }
+      `;
+    }
+
+    toCode(): string {
+      return `${this.name}(
+        ${this.args.map((a) => a.valueFunc()).join()}
+      )`;
+    }
+
+    toType(): Type {
+      return this.type;
+    }
+
+    getReferencedNodes(): Node[] {
+      return [...this.values, this.input, this.remainder];
     }
   }
 
@@ -2796,6 +2833,8 @@ function toTypeScript(
                   } else {
                     throw new Error("invalid character class");
                   }
+                } else if (typeof part === "object") {
+                  return `\\${part.value}`;
                 } else {
                   return RegExpLiteral.escapeClassCharacter(part);
                 }
@@ -3212,7 +3251,7 @@ function toTypeScript(
       .map((r) => r.toDefinition())
       .join("\n")}
 
-    export function parse(input: string, options: runtime.ParseOptions = new runtime.ParseOptions()): ${parser.returnType.unwrap().toCode()} {
+    export function parse(input: string, options: runtime.ParseOptions = {}): ${parser.returnType.unwrap().toCode()} {
       const parse$source = options.grammarSource;
 
       ${initializer}

@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as Peggy from "peggy";
+import * as assert from "node:assert/strict";
+import { test } from "node:test";
+
 import { run, generate } from "./utilities.ts";
 
 test("Correct syntax error type", () => {
   const parser = generate('a = "1"');
 
-  expect(() => {
+  assert.throws(() => {
     parser.parse("2");
-  }).toThrow(parser.SyntaxError);
+  }, parser.SyntaxError);
 });
 
 function testInput(input: string) {
@@ -48,15 +50,8 @@ function testInput(input: string) {
       controlError = e;
     }
 
-    expect(error).toBeInstanceOf(Error);
-    expect(controlError).toBeInstanceOf(Error);
-
-    if (!(error instanceof Error) || !(controlError instanceof Error)) {
-      return;
-    }
-
-    expect(error.toString()).toEqual(controlError.toString());
+    assert.ok(error instanceof Error);
+    assert.ok(controlError instanceof Error);
+    assert.equal(error.toString(), controlError.toString());
   });
 }
-
-// testInput("hi");

@@ -12,27 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as Peggy from "peggy";
+import * as assert from "node:assert/strict";
+import { test } from "node:test";
 import { run } from "./utilities.ts";
 
 test("parses input", async () => {
   const result = await run(`start = 'a'`, `a`);
 
-  // expect(success).toBe(true);
-  expect(result).toBe("a");
+  assert.equal(result, "a");
 });
 
 test("handles end of input on first choice", async () => {
   const result = await run(`start = "abc" / "ab"`, `ab`);
 
-  // expect(success).toBe(true);
-  expect(result).toBe("ab");
+  assert.equal(result, "ab");
 });
 
-test("does not consume trailing delimiter", async () => {
-  expect(() => run(`start = "a"|1..,"."|`, `a.a.a.a.`)).toThrow();
+test("does not consume trailing delimiter", () => {
+  assert.throws(() => run(`start = "a"|1..,"."|`, `a.a.a.a.`));
 });
 
-test("does not consume leading delimiter", async () => {
-  expect(() => run(`start = "a"|1..,"."|`, `.a.a.a.a`)).toThrow();
+test("does not consume leading delimiter", () => {
+  assert.throws(() => run(`start = "a"|1..,"."|`, `.a.a.a.a`));
 });

@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as vm from "node:vm";
 import Peggy from "peggy";
-import * as Morph from "ts-morph";
 import * as plugin from "../index.ts";
 
 export function generate(

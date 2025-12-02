@@ -1,6 +1,6 @@
 {
   "name": "peggy-ts",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "TypeScript plugin for Peggy parser generator",
   "author": "Dan Hudlow",
   "license": "Apache-2.0",
@@ -17,13 +17,13 @@
   ],
   "scripts": {
     "prepare": "./bin/prepare-runtime.ts && npm run bundle",
-    "bundle": "mkdir dist; esbuild index.ts --bundle --platform=node --format=cjs --external:peggy --external:ts-morph --external:source-map-generator > ./dist/index.cjs",
-    "clean": "rm -rf dist/ node_modules/ jest.config.js library/runtime.ts",
+    "bundle": "rm -rf dist; mkdir dist; esbuild index.ts --bundle --platform=node --format=cjs --external:peggy --external:ts-morph --external:source-map-generator > ./dist/index.cjs",
+    "clean": "git clean -xfd .",
     "lint": "prettier . --check",
     "lint-commits": "commitlint --from",
     "format": "prettier . --write",
     "check": "tsc --noEmit -p ./tsconfig.json --strict",
-    "test": "jest",
+    "test": "tsx --test",
     "verify": "npm run lint && npm run check && npm test"
   },
   "repository": {
@@ -39,34 +39,17 @@
     "peggyjs",
     "grammar"
   ],
-  "dependencies": {
-    "source-map-generator": "^0.8.0",
-    "ts-morph": "^23.0.0"
-  },
   "peerDependencies": {
-    "peggy": "^4.0.3"
+    "peggy": "^5.0.6"
   },
   "devDependencies": {
-    "@commitlint/cli": "^19.8.0",
-    "@commitlint/config-conventional": "^19.8.0",
-    "@types/jest": "^29.5.13",
-    "prettier": "^3.3.3",
-    "semantic-release": "^24.2.3",
-    "ts-jest": "^29.2.5",
-    "tsx": "^4.19.1"
+    "@types/node": "^24.10.1",
+    "esbuild": "^0.27.0",
+    "prettier": "^3.7.3",
+    "tsx": "^4.21.0"
   },
-  "commitlint": {
-    "extends": [
-      "@commitlint/config-conventional"
-    ]
-  },
-  "jest": {
-    "testEnvironment": "node",
-    "transform": {
-      "^.+.tsx?$": [
-        "ts-jest",
-        {}
-      ]
-    }
+  "dependencies": {
+    "source-map-generator": "^2.0.2",
+    "ts-morph": "^27.0.2"
   }
 }

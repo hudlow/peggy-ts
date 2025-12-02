@@ -12,15 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import * as Morph from "ts-morph";
+import { Project, SyntaxKind } from "ts-morph";
 
-export default function inferReturnType(
+export interface FunctionDiagnostics {
+  returnType: string;
+  unusedArgs: string[];
+}
+
+export default function getFunctionDiagnostics(
   code: string,
   name: string,
-  header?: string,
-  files?: Record<string, string>,
-): string {
-  const project = new Morph.Project();
+  header: string = "",
+): FunctionDiagnostics {
+  const project = new Project();
 
   const file = project.createSourceFile("__temp__.ts", header + code);
 
@@ -32,5 +36,17 @@ export default function inferReturnType(
     throw new Error("function not found");
   }
 
-  return func.getReturnType().getText(func);
+  const args = func.getParameters();
+  const identifiers =
+    func.getBody()?.getDescendantsOfKind(SyntaxKind.Identifier) ?? [];
+  const referencedDefinitions = identifiers.flatMap((i) => i.getDefinitions());
+  const referencedDeclarations = [
+    ...new Set(referencedDefinitions.map((d) => d.getDeclarationNode())),
+  ];
+  const unusedArgs = args.filter((p) => !referencedDeclarations.includes(p));
+
+  return {
+    returnType: func.getReturnType().getText(func),
+    unusedArgs: unusedArgs.map((p) => p.getName()),
+  };
 }

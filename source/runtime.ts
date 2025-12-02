@@ -71,7 +71,7 @@ namespace runtime {
 
   export class ParseFailure {}
 
-  export class ParseOptions {
+  export interface ParseOptions {
     currentPosition?: number;
     silentFails?: number;
     maxFailExpected?: Expectation[];
